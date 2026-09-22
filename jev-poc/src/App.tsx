@@ -37,7 +37,7 @@ export function App() {
   /** 早押し処理。自動側から呼ぶため ref で最新を持つ */
   const buzzRef = useRef<(chars: number, reason: string) => void>(() => {});
 
-  const { phase, question, frozenLength, judgement, error } = state;
+  const { phase, question, frozenLength, judgedLength, judgement, error } = state;
 
   /** Jev が押すと判断したときに呼ばれる */
   const handleAutoPress = useCallback((chars: number, reason: string) => {
@@ -166,10 +166,18 @@ export function App() {
       // 押したことのフィードバックなので、鳴り終わりを待たずに回答へ進ませる
       void playJingle('buzz');
 
-      // 自動の場合、判定した時点の文字数で止める。判定の間に再生が進んで
-      // いても、押す根拠になった位置で止めるのが実態に忠実であるため。
-      const shown = atChars ?? visibleLength(question.alignment, at);
-      dispatch({ type: 'buzz', visibleLength: shown });
+      // 表示は、実際に読み進んだところまでを残す。自動の場合、判定の間に
+      // 再生が進んで判定時点より先まで読まれているが、そこで表示を判定位置
+      // まで巻き戻すと、読まれた文字が消えて見える。
+      //
+      // 押す根拠になった位置（atChars）は judgedLength として別に持ち、
+      // 表示ではなく「どこで判定したか」を示すためだけに使う。
+      const shown = visibleLength(question.alignment, at);
+      dispatch({
+        type: 'buzz',
+        visibleLength: Math.max(shown, atChars ?? 0),
+        judgedLength: atChars ?? null,
+      });
     },
     [phase, question, currentTime, stopTracking],
   );
@@ -253,7 +261,11 @@ export function App() {
           )}
 
           {pressedReason !== null && (
-            <p className="jev-pressed-reason">Jev が押しました: {pressedReason}</p>
+            <p className="jev-pressed-reason">
+              Jev が押しました
+              {judgedLength !== null && `（${judgedLength} 字時点の判定）`}:{' '}
+              {pressedReason}
+            </p>
           )}
 
           {canAnswer(phase) && (

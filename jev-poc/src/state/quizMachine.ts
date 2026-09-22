@@ -27,6 +27,14 @@ export type QuizState = {
   question: Question | null;
   /** 早押し・音声終了で確定した表示文字数。null なら再生位置に追従する */
   frozenLength: number | null;
+  /**
+   * 自動早押しで、Jev が押すと判断した時点の文字数。手動の場合は null。
+   *
+   * 表示（frozenLength）とは別に持つ。判定から押下までの間にも読み上げは
+   * 進むため、表示を判定位置まで戻すと読まれた文字が消えて見える。
+   * 表示は読み進んだところまでを残し、判定位置はここで示す。
+   */
+  judgedLength: number | null;
   judgement: Judgement | null;
   error: string | null;
 };
@@ -38,7 +46,7 @@ export type QuizAction =
   | { type: 'questionLoaded'; question: Question }
   | { type: 'jingleEnded' }
   /** 早押し。その時点の表示文字数で問題文を止める */
-  | { type: 'buzz'; visibleLength: number }
+  | { type: 'buzz'; visibleLength: number; judgedLength?: number | null }
   /** 早押しされないまま音声が終わった */
   | { type: 'audioEnded'; visibleLength: number }
   | { type: 'judged'; judgement: Judgement }
@@ -48,6 +56,7 @@ export const initialState: QuizState = {
   phase: 'loading',
   question: null,
   frozenLength: null,
+  judgedLength: null,
   judgement: null,
   error: null,
 };
@@ -66,6 +75,7 @@ export function quizReducer(state: QuizState, action: QuizAction): QuizState {
         phase: 'jingle',
         question: action.question,
         frozenLength: null,
+        judgedLength: null,
         judgement: null,
         error: null,
       };
@@ -76,7 +86,12 @@ export function quizReducer(state: QuizState, action: QuizAction): QuizState {
 
     case 'buzz':
       return state.phase === 'reading'
-        ? { ...state, phase: 'buzzed', frozenLength: action.visibleLength }
+        ? {
+            ...state,
+            phase: 'buzzed',
+            frozenLength: action.visibleLength,
+            judgedLength: action.judgedLength ?? null,
+          }
         : state;
 
     case 'audioEnded':
