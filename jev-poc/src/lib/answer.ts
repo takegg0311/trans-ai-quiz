@@ -17,8 +17,11 @@ function toHalfWidth(value: string): string {
 /**
  * 比較用の正規化。
  * 全角/半角・大文字小文字・空白・記号の揺れを吸収する。
+ *
+ * 合議（consensus.ts）でも使う。モデル間で答えが同じかを比べる際、
+ * 表記揺れで多数決が割れると、実質同じ答えなのに最速採用へ落ちてしまう。
  */
-function normalize(value: string): string {
+export function normalizeAnswer(value: string): string {
   return toHalfWidth(value.normalize('NFKC'))
     .toLowerCase()
     .replace(/[\s・･\-ー―‐]/g, '');
@@ -26,11 +29,11 @@ function normalize(value: string): string {
 
 /** 入力が正解候補のいずれかと部分一致するか */
 export function isCorrect(input: string, answers: string[]): boolean {
-  const normalizedInput = normalize(input);
+  const normalizedInput = normalizeAnswer(input);
   if (normalizedInput === '') return false;
 
   return answers.some((answer) => {
-    const normalizedAnswer = normalize(answer);
+    const normalizedAnswer = normalizeAnswer(answer);
     if (normalizedAnswer === '') return false;
     return (
       normalizedInput.includes(normalizedAnswer) ||

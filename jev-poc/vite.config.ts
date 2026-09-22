@@ -16,9 +16,22 @@ export default defineConfig({
     // 埋め込めないため。server が起動していなければ自動早押しが無効になる
     // だけで、手動の早押しと回答は従来どおり動く。
     //
-    // 中継するのは /api/jev だけとする。問題データ（/quiz_data）と
+    // 中継するのは /api/jev と /api/llm。問題データ（/quiz_data）と
     // ジングル（/sound）は PoC 自身が public から配信している。
+    //
+    // /api/jev は早押しの判定、/api/llm は AI が押したときの回答に使う。
     proxy: {
+      '/api/llm': {
+        target: 'http://localhost:8000',
+        configure: (proxy) => {
+          proxy.on('error', (_error, _request, response) => {
+            if ('writeHead' in response && !response.headersSent) {
+              response.writeHead(502, { 'Content-Type': 'application/json' });
+              response.end('{"error":"server not running"}');
+            }
+          });
+        },
+      },
       '/api/jev': {
         target: 'http://localhost:8000',
         // server が起動していないのは異常ではなく、想定した縮退状態。
