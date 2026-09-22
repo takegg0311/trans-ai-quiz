@@ -51,6 +51,19 @@ MAX_NAME_LENGTH = 12
 # それ以外では出題者フロントにも正解を送らない。
 ANSWER_VISIBLE_PHASES: frozenset[str] = frozenset({"check", "timeUp", "result"})
 
+# AI の回答を投影に出してよい phase。正解より早く、押した直後から出す。
+#
+# 正解と違って早く出しても不利益が無い。AI の回答は「AI が何と答えたか」で
+# あって正解ではなく、しかも AI が押した時点でそのラウンドの解答権は
+# 確定している（judge のとおりダブルチャンスは無い）。他の参加者が
+# それを読んで得をする余地が無いため、チェック前に見せてよい。
+#
+# 早く出すことで、出題者と参加者が「AI が何と答えたか」を見ながら
+# 正解チェックへ進める。
+AI_ANSWER_VISIBLE_PHASES: frozenset[str] = frozenset(
+    {"buzzed", "check", "timeUp", "result"}
+)
+
 
 @dataclass
 class Player:
@@ -418,9 +431,11 @@ class Room:
             # 正解と同じ phase でのみ出す。早い phase で載せると、投影を
             # 見ている参加者が AI の答えを読んでそのまま答えられてしまう。
             # 回答者にも送らない（投影と同じ情報しか見せない原則）。
+            # AI の回答は正解より早く出す（buzzed から）。正解ではないため
+            # 参加者が読んでも得をせず、解答権も既に確定している。
             ai_answer=(
                 self.ai_answer
-                if for_host and self.phase in ANSWER_VISIBLE_PHASES
+                if for_host and self.phase in AI_ANSWER_VISIBLE_PHASES
                 else None
             ),
             remaining_questions=self._shuffler.remaining,

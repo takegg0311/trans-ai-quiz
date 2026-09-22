@@ -149,6 +149,11 @@ export function App() {
   const roundId = state?.round_id ?? 0;
 
   const ai = useAiPlayer({ send, roundId, questionId: state?.question?.id ?? null });
+
+  /** 回答権を得ているのが AI か。AI の回答枠を出すかの判断に使う */
+  const buzzedIsAi =
+    state?.buzzed != null &&
+    state.players.some((player) => player.id === state.buzzed?.player_id && player.is_ai);
   aiStopRef.current = ai.stop;
 
   /** AI の参加を切り替える。参加させる側だけサーバへ登録を送る */
@@ -430,7 +435,14 @@ export function App() {
         />
 
         {/* 正解と同じ phase でのみサーバが載せてくる */}
-        {state?.ai_answer != null && <AiAnswerView answer={state.ai_answer} />}
+        {/* AI が押していれば、合議が固まる前から枠を出す。
+            正解より早く出してよい理由は room.py の AI_ANSWER_VISIBLE_PHASES を参照 */}
+        {buzzedIsAi && (
+          <AiAnswerView
+            answer={state?.ai_answer ?? null}
+            pending={state?.ai_answer == null}
+          />
+        )}
       </section>
 
       <aside className="host-side">

@@ -1,8 +1,12 @@
 """AI 参加者の登録と、AI の回答の露出制御のテスト。
 
-**正解と同じ phase でのみ AI の回答を出す**のがこの機能の肝である。
-早い phase で載せると、投影を見ている参加者が AI の答えを読んで
-そのまま答えられてしまう。正解の露出制御と同じ扱いにしてある。
+AI の回答は**正解より早く**（押した直後の buzzed から）投影へ出す。
+正解ではないため参加者が読んでも得をせず、AI が押した時点でそのラウンドの
+解答権は確定しているため（ダブルチャンスは無い）。
+
+一方で**正解の露出は変えない**。AI の回答を早く出したことで正解まで
+早く出てしまうと、投影を見ている参加者がそれを読めてしまう。
+この 2 つが分かれていることを確かめるのが、このファイルの主眼である。
 """
 
 from __future__ import annotations
@@ -166,7 +170,7 @@ class TestSetAiAnswer:
 
 
 class TestAiAnswerVisibility:
-    """AI の回答をいつ投影へ出すか。正解と同じ制御にする。"""
+    """AI の回答をいつ投影へ出すか。正解とは別の制御にする。"""
 
     def _buzzed_with_answer(self, room: Room) -> None:
         ai = room.join_ai("AI")
@@ -174,14 +178,32 @@ class TestAiAnswerVisibility:
         room.buzz(ai.id, room.round_id)
         room.set_ai_answer(room.round_id, _answer())
 
-    def test_buzzed_では出さない(self, room: Room) -> None:
-        # 回答権を得た時点で AI の答えが投影に出ると、参加者がそれを読める
+    def test_buzzed_から出す(self, room: Room) -> None:
+        """AI の回答は正解より早く、押した直後から出す。
+
+        正解ではないので参加者が読んでも得をせず、AI が押した時点で
+        そのラウンドの解答権は確定している（ダブルチャンスは無い）。
+        """
         self._buzzed_with_answer(room)
 
-        assert room.to_state_message(for_host=True).ai_answer is None
+        message = room.to_state_message(for_host=True)
 
-    def test_check_で出す(self, room: Room) -> None:
-        # 正解が投影に出るのと同じタイミング
+        assert message.ai_answer is not None
+        assert message.ai_answer.answer == "富士山"
+
+    def test_buzzed_では正解を出さない(self, room: Room) -> None:
+        """AI の回答を早く出しても、正解の露出は変えない。
+
+        ここが崩れると、投影を見ている参加者が正解を読めてしまう。
+        """
+        self._buzzed_with_answer(room)
+
+        message = room.to_state_message(for_host=True)
+
+        assert message.question is not None
+        assert message.question.answers is None
+
+    def test_check_で正解と並ぶ(self, room: Room) -> None:
         self._buzzed_with_answer(room)
         room.check(room.round_id)
 
@@ -189,7 +211,7 @@ class TestAiAnswerVisibility:
 
         assert message.ai_answer is not None
         assert message.ai_answer.answer == "富士山"
-        # 正解も同時に出ていること
+        # 正解もここで出る
         assert message.question is not None
         assert message.question.answers == ["富士山"]
 
@@ -204,8 +226,12 @@ class TestAiAnswerVisibility:
         """投影と同じ情報しか見せない原則。
 
         回答者の画面には問題文も正解も送っていない。AI の回答も同じ扱いにする。
+        早く出すのは投影（出題者フロント）だけである。
         """
         self._buzzed_with_answer(room)
+
+        assert room.to_state_message(for_host=False).ai_answer is None
+
         room.check(room.round_id)
 
         assert room.to_state_message(for_host=False).ai_answer is None
