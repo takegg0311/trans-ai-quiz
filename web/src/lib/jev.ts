@@ -24,6 +24,8 @@ export type JevHealth = {
   model: string;
   /** narrowed の段階数。score の値域は 0〜(この値-1) */
   narrowedLevels: number;
+  /** 読み切り後、AI が回答に踏み切るまでの待ち時間（ミリ秒） */
+  readingEndedDelayMs: number;
   reason?: string;
 };
 
@@ -65,6 +67,10 @@ export async function checkHealth(): Promise<JevHealth | null> {
       model: typeof data.model === 'string' ? data.model : '',
       narrowedLevels:
         typeof data.narrowed_levels === 'number' ? data.narrowed_levels : 0,
+      readingEndedDelayMs:
+        typeof data.reading_ended_delay_ms === 'number'
+          ? data.reading_ended_delay_ms
+          : 0,
       reason: typeof data.reason === 'string' ? data.reason : undefined,
     };
   } catch {

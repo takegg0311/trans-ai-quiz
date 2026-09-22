@@ -68,6 +68,7 @@ beforeEach(() => {
     available: true,
     model: 'jev-latest',
     narrowedLevels: 4,
+    readingEndedDelayMs: 0,
   });
   vi.spyOn(llm, 'checkHealth').mockResolvedValue(providers());
   vi.spyOn(llm, 'predict').mockResolvedValue({
@@ -328,6 +329,37 @@ describe('送信の間引き', () => {
     });
     await act(async () => {
       hook.result.current.feed(TEXT, 41, 'q1');
+    });
+
+    expect(judge).toHaveBeenCalledTimes(1);
+  });
+
+  it('force なら同じ文字数でも送る', async () => {
+    // 読み切り後の 1 回。読み上げ中に全文まで送り切っていると、
+    // 間引かれて「読み切り後の判定」が一度も走らない
+    const judge = vi.spyOn(jev, 'judge').mockResolvedValue(HOLD);
+    const { hook } = await mount('q1');
+
+    await act(async () => {
+      hook.result.current.feed(TEXT, 40, 'q1');
+    });
+    await act(async () => {
+      hook.result.current.feed(TEXT, 40, 'q1', true);
+    });
+
+    expect(judge).toHaveBeenCalledTimes(2);
+  });
+
+  it('force でも押した後は送らない', async () => {
+    // 既に押していれば、読み切り後に送り直す意味が無い
+    const judge = vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    const { hook } = await mount('q1');
+
+    await act(async () => {
+      hook.result.current.feed(TEXT, 40, 'q1');
+    });
+    await act(async () => {
+      hook.result.current.feed(TEXT, 41, 'q1', true);
     });
 
     expect(judge).toHaveBeenCalledTimes(1);

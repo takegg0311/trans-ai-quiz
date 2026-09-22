@@ -58,6 +58,14 @@ export type AiReadiness = {
   jev: boolean;
   /** 3 モデルすべてが使えるか。false でも早押しはする（回答できないだけ） */
   llm: boolean;
+  /**
+   * 読み切り後、AI が回答に踏み切るまでの待ち時間（ミリ秒）。
+   *
+   * 読み切っても早押しは締め切られない（締め切るのは出題者の time_up）。
+   * その間 AI が即座に押すと人間が考える間が無くなるため、待たせる。
+   * 0 なら読み切りと同時に押す。サーバの AI_READING_ENDED_DELAY_MS から来る。
+   */
+  readingEndedDelayMs: number;
 };
 
 type Props = {
@@ -74,7 +82,11 @@ type Props = {
 
 export function useAiPlayer({ send, roundId, questionId }: Props) {
   const [enabled, setEnabled] = useState(false);
-  const [readiness, setReadiness] = useState<AiReadiness>({ jev: false, llm: false });
+  const [readiness, setReadiness] = useState<AiReadiness>({
+    jev: false,
+    llm: false,
+    readingEndedDelayMs: 0,
+  });
   /** 直近の判定。押した理由を出題者が確認するために持つ */
   const [lastJudgement, setLastJudgement] = useState<AiJudgement | null>(null);
 
@@ -134,6 +146,7 @@ export function useAiPlayer({ send, roundId, questionId }: Props) {
     setReadiness({
       jev: jevHealth !== null && jevHealth.available,
       llm: llmReady,
+      readingEndedDelayMs: jevHealth?.readingEndedDelayMs ?? 0,
     });
   }, []);
 
@@ -212,10 +225,15 @@ export function useAiPlayer({ send, roundId, questionId }: Props) {
    * 文字列を繰り返し投げることになる。
    */
   const feed = useCallback(
-    (partialText: string, chars: number, questionId: string) => {
+    (partialText: string, chars: number, questionId: string, force = false) => {
       if (!enabledRef.current || !readiness.jev) return;
-      if (pressedRef.current || inFlightRef.current) return;
-      if (chars === lastSentRef.current || chars === 0) return;
+      if (pressedRef.current) return;
+      if (inFlightRef.current) return;
+      // 読み切り後の 1 回だけは、同じ文字数でも送る（force）。
+      // 読み上げ中に全文まで送り切っていると、ここが間引かれて
+      // 「読み切り後の判定」が一度も走らないことがある。
+      if (!force && (chars === lastSentRef.current || chars === 0)) return;
+      if (chars === 0) return;
 
       lastSentRef.current = chars;
       inFlightRef.current = true;

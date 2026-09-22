@@ -390,6 +390,28 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, question, currentTime, hasAlignment, currentPosition, state?.question?.id, ai.feed]);
 
+  // 読み切った後も早押しは締め切られない（締め切るのは出題者の time_up）。
+  // 人間はこの間も押せるので、AI も押せないと対決として不公平になる。
+  //
+  // ただし即座に押させない。読み切りの直後は人間が考えている時間であり、
+  // そこへ AI が割り込むと考える間が無くなる。待ち時間は
+  // AI_READING_ENDED_DELAY_MS で変えられる（0 なら読み切りと同時）。
+  useEffect(() => {
+    if (phase !== 'readingEnded' || question === null) return;
+    if (state?.question?.id !== question.id) return;
+
+    const timer = window.setTimeout(() => {
+      // 読み切っているので全文を渡す。まだ読まれていない部分は無く、
+      // 人間が聞いた範囲と同じであるため、カンニングにはあたらない
+      const text = question.text;
+      // force。読み上げ中に全文まで送っていると間引かれてしまう
+      ai.feed(text, [...text].length, question.id, true);
+    }, ai.readiness.readingEndedDelayMs);
+
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, question, state?.question?.id, ai.feed, ai.readiness.readingEndedDelayMs]);
+
   if (hostToken.current === '') {
     return (
       <main className="host">

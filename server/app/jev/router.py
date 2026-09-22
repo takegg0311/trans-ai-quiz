@@ -17,7 +17,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from .client import JevError, evaluate
-from .config import ENV_KEY, api_key, model
+from .config import ENV_KEY, api_key, model, reading_ended_delay_ms
 from .questions import ACTIVE_QUESTIONS, NARROWED_LEVELS
 
 router = APIRouter(prefix="/api/jev", tags=["jev"])
@@ -42,6 +42,10 @@ async def health() -> dict[str, object]:
         #: narrowed の score は 0〜1 ではなく 0〜(段階数-1)。
         #  値域を取り違えないよう、段階数を明示して返す。
         "narrowed_levels": NARROWED_LEVELS,
+        #: 読み切り後、AI が回答に踏み切るまでの待ち時間（ミリ秒）。
+        #  サーバが持つのは、出題者フロントを開き直しても設定が変わらないようにするため
+        #  （quiz.py の char_interval_ms と同じ方針）。
+        "reading_ended_delay_ms": reading_ended_delay_ms(),
     }
     if not available:
         view["reason"] = f"{ENV_KEY} が設定されていません"

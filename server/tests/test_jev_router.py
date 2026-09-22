@@ -180,3 +180,39 @@ def test_空の問題文は受け付けない(client: TestClient) -> None:
     response = client.post("/api/jev/judge", json={"partial_text": ""})
 
     assert response.status_code == 422
+
+
+def test_health_は読み切り後の待ち時間を返す(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """出題者フロントがこの値で待ってから AI に押させる。
+
+    サーバが持つのは、フロントを開き直しても設定が変わらないようにするため
+    （quiz.py の char_interval_ms と同じ方針）。
+    """
+    monkeypatch.setenv("TYPESAFE_API_KEY", "dummy")
+    monkeypatch.setenv("AI_READING_ENDED_DELAY_MS", "3000")
+
+    assert client.get("/api/jev/health").json()["reading_ended_delay_ms"] == 3000
+
+
+def test_待ち時間は_0_を認める(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """0 は「読み切りと同時に押す」として有効な設定。
+
+    正の値だけを認めると 0 が既定値へ落ちてしまう。
+    """
+    monkeypatch.setenv("TYPESAFE_API_KEY", "dummy")
+    monkeypatch.setenv("AI_READING_ENDED_DELAY_MS", "0")
+
+    assert client.get("/api/jev/health").json()["reading_ended_delay_ms"] == 0
+
+
+def test_待ち時間が不正なら既定値へ落とす(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TYPESAFE_API_KEY", "dummy")
+    monkeypatch.setenv("AI_READING_ENDED_DELAY_MS", "abc")
+
+    assert client.get("/api/jev/health").json()["reading_ended_delay_ms"] == 5000

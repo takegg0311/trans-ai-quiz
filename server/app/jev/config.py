@@ -32,6 +32,31 @@ def api_key() -> str | None:
     return _api_key(ENV_KEY)
 
 
+#: 読み切り後、AI が回答に踏み切るまでの待ち時間（ミリ秒）。
+#
+# 読み切っても早押しは締め切られない（締め切るのは出題者の time_up）。
+# その間 AI が即座に押すと、人間が考える間が無くなる。
+# 0 にすれば読み切りと同時に押す。
+DEFAULT_READING_ENDED_DELAY_MS = 5000
+
+
+def reading_ended_delay_ms() -> int:
+    """読み切り後、AI が回答に踏み切るまでの待ち時間。
+
+    毎回読むのは、テストで環境変数を差し替えられるようにするため
+    （quiz.py の char_interval_ms と同じ方針）。
+    不正な値は既定値へ落とす。0 は「待たない」として認める。
+    """
+    raw = os.getenv("AI_READING_ENDED_DELAY_MS")
+    if raw is None or raw.strip() == "":
+        return DEFAULT_READING_ENDED_DELAY_MS
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_READING_ENDED_DELAY_MS
+    return value if value >= 0 else DEFAULT_READING_ENDED_DELAY_MS
+
+
 def model() -> str:
     """使うモデル名。未設定なら jev-latest。
 
