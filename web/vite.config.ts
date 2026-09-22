@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'node:path';
 
@@ -9,6 +9,12 @@ import { resolve } from 'node:path';
  */
 export default defineConfig({
   plugins: [react()],
+  // AI 参加者の制御（useAiPlayer）を検証する。前問の文章で押してしまう
+  // 不具合が実機で出たため、同種の退行をテストで止める。
+  test: {
+    environment: 'jsdom',
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+  },
   server: {
     host: true,
     // 開発時はバックエンドを別プロセスで動かし、ここから中継する。

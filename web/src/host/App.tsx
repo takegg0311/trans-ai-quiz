@@ -148,7 +148,7 @@ export function App() {
   const phase = state?.phase ?? 'idle';
   const roundId = state?.round_id ?? 0;
 
-  const ai = useAiPlayer({ send, roundId });
+  const ai = useAiPlayer({ send, roundId, questionId: state?.question?.id ?? null });
   aiStopRef.current = ai.stop;
 
   /** AI の参加を切り替える。参加させる側だけサーバへ登録を送る */
@@ -346,11 +346,44 @@ export function App() {
   // 時間ではなく文字数の変化で駆動するのは、無音区間や長音で同じ文字列を
   // 繰り返し投げないため。送信の間引きは useAiPlayer が行う。
   useEffect(() => {
-    if (phase !== 'reading' || question === null || shownLength === 0) return;
-    ai.feed([...question.text].slice(0, shownLength).join(''), shownLength);
+    if (phase !== 'reading' || question === null) return;
+
+    // **今の問題が今のラウンドのものかを確かめる。**
+    // 新しいラウンドが始まった直後は、phase と roundId だけが先に更新され、
+    // question は前問のまま残る（useQuestion が .lab を非同期で取りに行く）。
+    if (state?.question?.id !== question.id) return;
+
+    // **AI に渡す文字数は shownLength から取らない。**
+    // shownLength は投影の都合を含んでいる:
+    //   - frozenLength … 前ラウンドの停止位置が、リセットされるまで残る
+    //   - hasAlignment が false … .lab を読めないときは「全文」を出す
+    // どちらも「読み上げがそこまで進んだ」という意味ではないため、そのまま
+    // 渡すと開始直後に全文が飛び、AI がカンニングしたように即座に押す。
+    //
+    // 判定には再生位置から都度求めた値だけを使う。アライメントが無い間は
+    // 進捗が分からないので、判定そのものを見送る。
+    if (!hasAlignment) return;
+
+    // **実際に読み上げが始まっているかを、再生の実体で確かめる。**
+    // currentTime も frozenLength も「前ラウンドの値が残っている」窓がある
+    // （どちらも問題の読み込み完了を待つ effect の中でリセットされるため）。
+    // <audio> が再生中か、音声なし問題の時計が動いているかだけが、
+    // 「今この問題の読み上げが進んでいる」ことの確かな根拠になる。
+    const audio = audioRef.current;
+    const silent = question.audioUrl === null;
+    const playing = silent
+      ? silentClockRef.current.startedAt !== null
+      : audio !== null && !audio.paused;
+    if (!playing) return;
+
+    // 表示用の値ではなく、再生位置から都度求めた値を使う
+    const heard = visibleLength(question.alignment, currentPosition());
+    if (heard === 0) return;
+
+    ai.feed([...question.text].slice(0, heard).join(''), heard, question.id);
     // ai 全体を依存に置くと毎フレーム実行される。必要なのは feed だけ
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, question, shownLength, ai.feed]);
+  }, [phase, question, currentTime, hasAlignment, currentPosition, state?.question?.id, ai.feed]);
 
   if (hostToken.current === '') {
     return (

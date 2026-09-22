@@ -47,9 +47,14 @@ type Props = {
   send: (message: ClientMessage) => void;
   /** 現在の round_id。世代管理に使う */
   roundId: number;
+  /**
+   * 今サーバが出題している問題の id（room_state 由来）。
+   * フロントが読み込み中の問題ではなく、**サーバが出題中のもの**を渡す。
+   */
+  questionId: string | null;
 };
 
-export function useAiPlayer({ send, roundId }: Props) {
+export function useAiPlayer({ send, roundId, questionId }: Props) {
   const [enabled, setEnabled] = useState(false);
   const [readiness, setReadiness] = useState<AiReadiness>({ jev: false, llm: false });
   /** 判定の履歴。押した理由を出題者が確認するために持つ */
@@ -72,6 +77,19 @@ export function useAiPlayer({ send, roundId }: Props) {
   const pressedRef = useRef(false);
   /** 疎通確認の世代。古い結果で新しい結果を上書きしない */
   const healthGenerationRef = useRef(0);
+  /**
+   * 今サーバが出題している問題の id。押す直前に、判定に使った問題と
+   * 一致するかを確かめるために使う。
+   *
+   * roundId だけでは足りない。新しいラウンドが始まった直後は roundId が
+   * 先に更新され、問題の読み込み（.lab の取得）が追いつく前に feed が
+   * 走りうる。そのとき渡ってくるのは前問の本文である。
+   *
+   * **feed の引数からではなく、room_state から入れること。**
+   * feed が書き込むと自分自身と比べるだけになり、防御にならない。
+   */
+  const currentQuestionRef = useRef<string | null>(null);
+  currentQuestionRef.current = questionId;
 
   const refresh = useCallback(async () => {
     healthGenerationRef.current += 1;
@@ -125,41 +143,45 @@ export function useAiPlayer({ send, roundId }: Props) {
    * 勝敗に関わるため、結果が決まっている応答を待たない。
    * 遅れて届いた応答は送信済みの結果を変えない。
    */
-  const runAnswer = useCallback((partialText: string, round: number) => {
-    const answers: (ModelAnswer | null)[] = OPPONENTS.map(() => null);
-    let settled = false;
+  const runAnswer = useCallback(
+    (partialText: string, round: number, questionId: string) => {
+      const answers: (ModelAnswer | null)[] = OPPONENTS.map(() => null);
+      let settled = false;
 
-    OPPONENTS.forEach((opponent, index) => {
-      void predict(opponent.vendor, opponent.model, partialText, false).then(
-        (result: PredictResult) => {
-          // 次の問題へ進んだ後に届いた応答は捨てる
-          if (roundRef.current !== round) return;
+      OPPONENTS.forEach((opponent, index) => {
+        void predict(opponent.vendor, opponent.model, partialText, false).then(
+          (result: PredictResult) => {
+            // 次の問題へ進んだ後に届いた応答は捨てる
+            if (roundRef.current !== round) return;
+            if (questionId !== currentQuestionRef.current) return;
 
-          answers[index] = {
-            vendor: opponent.vendor,
-            model: opponent.model,
-            result,
-          };
-          if (settled) return;
+            answers[index] = {
+              vendor: opponent.vendor,
+              model: opponent.model,
+              result,
+            };
+            if (settled) return;
 
-          const arrived = answers.filter(
-            (answer): answer is ModelAnswer => answer !== null,
-          );
-          if (!canSettleEarly(arrived, OPPONENTS.length)) return;
+            const arrived = answers.filter(
+              (answer): answer is ModelAnswer => answer !== null,
+            );
+            if (!canSettleEarly(arrived, OPPONENTS.length)) return;
 
-          settled = true;
-          const consensus = decideConsensus(arrived);
-          sendRef.current({
-            type: 'ai_answer',
-            round_id: round,
-            answer: consensus.answer,
-            reason: describeConsensus(consensus),
-            models: toModelViews(answers),
-          });
-        },
-      );
-    });
-  }, []);
+            settled = true;
+            const consensus = decideConsensus(arrived);
+            sendRef.current({
+              type: 'ai_answer',
+              round_id: round,
+              answer: consensus.answer,
+              reason: describeConsensus(consensus),
+              models: toModelViews(answers),
+            });
+          },
+        );
+      });
+    },
+    [],
+  );
 
   /**
    * 読み上げ済みの問題文を評価する。表示文字数が変わるたびに呼ぶ。
@@ -168,7 +190,7 @@ export function useAiPlayer({ send, roundId }: Props) {
    * 文字列を繰り返し投げることになる。
    */
   const feed = useCallback(
-    (partialText: string, chars: number) => {
+    (partialText: string, chars: number, questionId: string) => {
       if (!enabledRef.current || !readiness.jev) return;
       if (pressedRef.current || inFlightRef.current) return;
       if (chars === lastSentRef.current || chars === 0) return;
@@ -190,12 +212,17 @@ export function useAiPlayer({ send, roundId }: Props) {
         if (!judgement.press || pressedRef.current) return;
         // 送信後に AI を外されていれば押さない
         if (!enabledRef.current) return;
+        // **判定に使った問題が今の問題と違えば押さない。**
+        // 呼び出し側でも確かめているが、ここでも見る。押下は取り消せず、
+        // 前問の文章で押すと「カンニング」に見える挙動になるため、
+        // 条件の取りこぼしが一箇所で済まないようにしておく。
+        if (questionId !== currentQuestionRef.current) return;
 
         pressedRef.current = true;
         sendRef.current({ type: 'ai_buzz', round_id: round, judged_length: chars });
         // 押した時点で読み上げられていた範囲を渡す。Jev が判断した位置では
         // ない——人間が同じ位置で押した場合にも同じ範囲が聞こえている
-        runAnswer(partialText, round);
+        runAnswer(partialText, round, questionId);
       });
     },
     [readiness.jev, runAnswer],
