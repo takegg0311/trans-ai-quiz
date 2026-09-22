@@ -241,8 +241,9 @@ function toModelViews(answers: (ModelAnswer | null)[]): AiModelAnswerView[] {
   return answers.flatMap((answer, index) => {
     const opponent = OPPONENTS[index];
     if (opponent === undefined) return [];
+    // まだ届いていない。失敗ではないので error にはしない
     if (answer === null) {
-      return [{ label: opponent.label, answer: '', elapsed_ms: 0, error: '応答なし' }];
+      return [{ label: opponent.label, answer: '', elapsed_ms: 0, pending: true }];
     }
 
     const { result } = answer;

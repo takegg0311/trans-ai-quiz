@@ -174,6 +174,10 @@ describe('遅れて届いたモデルの回答', () => {
       .filter((message) => message.type === 'ai_answer');
     expect(settled).toHaveLength(1);
 
+    // 確定時点では 3 モデル目は「応答待ち」。失敗扱いにしない
+    expect(settled[0].models[2]?.pending).toBe(true);
+    expect(settled[0].models[2]?.error).toBeUndefined();
+
     // 3 モデル目が遅れて届く
     await act(async () => {
       resolvers[2]?.(answer('北岳', 5500));
@@ -187,9 +191,47 @@ describe('遅れて届いたモデルの回答', () => {
     const last = all[1];
     // 合議の結果は変わらない
     expect(last.answer).toBe('富士山');
-    // 3 モデル目の回答が入っている
+    // 3 モデル目の回答が入り、応答待ちが解ける
     expect(last.models[2]?.answer).toBe('北岳');
     expect(last.models[2]?.error).toBeUndefined();
+    expect(last.models[2]?.pending).toBeUndefined();
+  });
+
+  it('タイムアウトは応答待ちではなく失敗として出す', async () => {
+    // 待っても来ないものは「応答なし」でよい。区別するのは未着だけ
+    vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    const resolvers: ((value: llm.PredictResult) => void)[] = [];
+    vi.spyOn(llm, 'predict').mockImplementation(
+      () =>
+        new Promise<llm.PredictResult>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    const { hook, send } = await mount('q1');
+
+    await act(async () => {
+      hook.result.current.feed(TEXT, 40, 'q1');
+    });
+    await waitFor(() => expect(resolvers).toHaveLength(OPPONENTS.length));
+
+    await act(async () => {
+      resolvers[0]?.(answer('富士山', 1000));
+      resolvers[1]?.(answer('富士山', 1200));
+      resolvers[2]?.({
+        status: 'error',
+        kind: 'timeout',
+        message: '応答がありませんでした',
+        elapsedMs: 60000,
+      });
+    });
+
+    const all = send.mock.calls
+      .map((call) => call[0])
+      .filter((message) => message.type === 'ai_answer');
+    const last = all[all.length - 1];
+
+    expect(last.models[2]?.pending).toBeUndefined();
+    expect(last.models[2]?.error).toBe('応答がありませんでした');
   });
 
   it('確定前の応答では送らない', async () => {

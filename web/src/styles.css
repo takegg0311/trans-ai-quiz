@@ -549,6 +549,11 @@ body {
   color: var(--wrong);
 }
 
+/* 応答待ち。失敗（--wrong）と区別できる色にする */
+.ai-model-pending {
+  color: var(--muted);
+}
+
 .ai-model-ms {
   text-align: right;
   color: var(--muted);

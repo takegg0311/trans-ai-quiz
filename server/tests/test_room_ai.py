@@ -149,7 +149,7 @@ class TestSetAiAnswer:
             models=[
                 AiModelAnswerView(label="Claude", answer="富士山", elapsed_ms=1200),
                 AiModelAnswerView(label="Gemini", answer="富士山", elapsed_ms=900),
-                AiModelAnswerView(label="Grok", answer="", elapsed_ms=0, error="応答なし"),
+                AiModelAnswerView(label="Grok", answer="", elapsed_ms=0, pending=True),
             ],
         )
         assert room.set_ai_answer(room.round_id, first) is True
@@ -173,6 +173,7 @@ class TestSetAiAnswer:
         # 3 モデル目の回答が反映されている
         assert room.ai_answer.models[2].answer == "北岳"
         assert room.ai_answer.models[2].error is None
+        assert room.ai_answer.models[2].pending is False
 
     def test_人間が押したラウンドでは受け取らない(self, room: Room) -> None:
         """遅れて届いた合議結果で、投影に AI の回答が出てしまうのを防ぐ。"""

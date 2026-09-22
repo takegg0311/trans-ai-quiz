@@ -54,7 +54,11 @@ export function AiAnswerView({ answer, pending }: Props) {
               <tr key={model.label}>
                 <td className="ai-model-label">{model.label}</td>
                 <td className="ai-model-answer">
-                  {model.error != null && model.error !== '' ? (
+                  {model.pending === true ? (
+                    // 早期確定で先に合議が決まった場合、残りはここに入る。
+                    // 失敗と同じ見た目にすると「待っても来ない」と見える
+                    <span className="ai-model-pending">応答待ち…</span>
+                  ) : model.error != null && model.error !== '' ? (
                     <span className="ai-model-error">{model.error}</span>
                   ) : (
                     model.answer

@@ -40,12 +40,19 @@ export type PlayerView = {
 /** 合議に参加した 1 モデルの応答 */
 export type AiModelAnswerView = {
   label: string;
-  /** 回答。失敗した場合は空 */
+  /** 回答。失敗した場合と応答待ちの場合は空 */
   answer: string;
   /** サーバ実測の応答時間 */
   elapsed_ms: number;
-  /** 失敗した場合の理由。成功時は null */
+  /** 失敗した場合の理由。成功時と応答待ちは null */
   error?: string | null;
+  /**
+   * まだ応答が届いていない。
+   *
+   * 早期確定で先に合議が決まると、残りのモデルは応答待ちのまま投影へ出る。
+   * 失敗と同じ表示にすると「待っても来ない」ように見えるため区別する。
+   */
+  pending?: boolean;
 };
 
 /**
