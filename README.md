@@ -1,25 +1,26 @@
 # AI横断クイズ (trans-ai-quiz)
 
 早押しクイズの問題文を各社 LLM へ送り、続きの補完と答えを比較する。
-現在の実験の主対象は [`llm-poc`](docs/llm.md#llm-poc) である。
+現在の実験の主対象は [`llm-poc`](docs/llm.md#llm-poc) と [`jev-poc`](docs/jev-poc.md) である。
 
 同一ネットワーク内で開催するオンライン早押し（投影 + スマホ）も持つ。
 元になった 1 台完結の PoC（[`poc/`](docs/poc.md)）は凍結している。
 
 ## 構成
 
-フロントは 3 つ（`llm-poc/`・オンライン版・凍結 `poc/`）。
-`server/` は LLM 中継とオンライン版の早押し判定を担う共通バックエンドである。
+フロントは 4 つ（`llm-poc/`・`jev-poc/`・オンライン版・凍結 `poc/`）。
+`server/` は LLM 中継・Jev 判定・オンライン版の早押し判定を担う共通バックエンドである。
 
-出題データとジングル SE はリポジトリルートに置き、オンライン版と凍結 `poc/` で共有している。
+出題データとジングル SE はリポジトリルートに置き、オンライン版・`jev-poc`・凍結 `poc/` で共有している。
 `llm-poc` は問題データを使わない。
 
 | ディレクトリ | 内容 |
 | --- | --- |
 | `llm-poc/` | LLM 予測比較の PoC。[詳細](docs/llm.md) |
+| `jev-poc/` | Jev で早押しボタンを自動化する PoC。[詳細](docs/jev-poc.md) |
 | `web/` | オンライン版のフロントエンド。出題者用（投影）と回答者用（スマホ）。[詳細](docs/online.md) |
 | `poc/` | **凍結**。音声読み上げによる早押しの PoC。[詳細](docs/poc.md) |
-| `server/` | バックエンド（Python / FastAPI）。[LLM 中継](docs/llm.md) と [オンライン版の判定](docs/online.md) |
+| `server/` | バックエンド（Python / FastAPI）。[LLM 中継](docs/llm.md)・[Jev 判定](docs/jev-poc.md)・[オンライン版の判定](docs/online.md) |
 | `docs/` | 詳細ドキュメント |
 
 ```
@@ -27,17 +28,19 @@ trans-ai-quiz/
 ├── docs/          詳細ドキュメント
 ├── quiz_data/     問題データ（CSV と VOICEPEAK の出力）
 ├── sound/         ジングル SE
-├── server/        バックエンド（オンライン版の判定・LLM 中継）
+├── server/        バックエンド（オンライン版の判定・LLM 中継・Jev 判定）
 ├── web/           オンライン版フロントエンド
 ├── llm-poc/       LLM 予測比較 PoC
+├── jev-poc/       Jev 自動早押し PoC
 └── poc/           音声早押し PoC（凍結）
 ```
 
 ## 必要なもの
 
 - Node.js 20 以上
-- オンライン版と `llm-poc` を動かす場合は、追加で Python 3.12 以上と [uv](https://docs.astral.sh/uv/)
+- オンライン版・`llm-poc`・`jev-poc` を動かす場合は、追加で Python 3.12 以上と [uv](https://docs.astral.sh/uv/)
 - LLM 予測を使う場合は、各社の API キー
+- 自動早押しを使う場合は、[TypeSafe](https://docs.typesafe.ai/) の API キー
 
 ## セットアップ
 
@@ -72,6 +75,17 @@ npm run dev -w llm-poc
 ```
 
 操作・記録・プロンプトは [docs/llm.md](docs/llm.md)。
+
+## jev-poc
+
+読み上げ中の問題文を Jev へ随時投げ、確定ポイントと判断したら自動で早押しする。
+`server` に `TYPESAFE_API_KEY` を設定して起動しておく（未設定でも手動の早押しは動く）。
+
+```bash
+npm run dev -w jev-poc
+```
+
+押下判定の設計と閾値の調整手順は [docs/jev-poc.md](docs/jev-poc.md)。
 
 ## オンライン版
 

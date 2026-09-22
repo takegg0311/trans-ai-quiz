@@ -4,6 +4,9 @@
 主クライアントは [`llm-poc`](#llm-poc)（予測と記録）。
 凍結 [`poc/`](poc.md) も同じ `/api/llm/predict` を使うが、早押し画面の付随機能である。
 
+早押しボタンを自動で押す [`jev-poc`](jev-poc.md) は、この LLM 中継ではなく Jev（`/api/jev/*`）を使う。
+`/predict` は補完タスクであり、どんな短い断片でも問題文を繋げようとするため、「今が確定ポイントか」の判断には使えない。
+
 現在は **OpenAI / Claude / Gemini / xAI Grok に対応**。
 
 ## 仕組み
@@ -13,6 +16,8 @@ API キーはブラウザのバンドルに埋め込めず、各社 API には�
 ```
 llm-poc (vite) ──/api/llm/* をプロキシ──▶ server (:8000) ──▶ 各社 API
 poc     (vite) ──/api/llm/* をプロキシ──▶
+
+jev-poc (vite) ──/api/jev/* をプロキシ──▶ server (:8000) ──▶ TypeSafe（別系統）
 ```
 
 | 経路 | 使うクライアント | 内容 |

@@ -2,49 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "trans-ai-quiz-poc",
+      "name": "jev-poc",
       "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "dev",
-        "-w",
-        "poc",
-        "--",
-        "--port",
-        "5273",
-        "--strictPort"
-      ],
-      "port": 5273
-    },
-    {
-      "name": "trans-ai-quiz-web",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "dev",
-        "-w",
-        "web",
-        "--",
-        "--port",
-        "5274",
-        "--strictPort"
-      ],
-      "port": 5274
-    },
-    {
-      "name": "trans-ai-quiz-llm-poc",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "dev",
-        "-w",
-        "llm-poc",
-        "--",
-        "--port",
-        "5275",
-        "--strictPort"
-      ],
-      "port": 5275
+      "runtimeArgs": ["run", "dev", "-w", "jev-poc"],
+      "port": 5173
     }
   ]
 }
