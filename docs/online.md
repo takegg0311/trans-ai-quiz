@@ -48,6 +48,7 @@ cd server && uv sync && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 | --- | --- |
 | `QUIZ_CHAR_INTERVAL_MS` | 音声なし問題の文字送り間隔（ミリ秒/文字、既定 120） |
 | `TYPESAFE_API_KEY` | AI 参加者の早押し判定（[Jev](jev-poc.md)）。未設定なら AI を参加させられない |
+| `AI_READING_ENDED_DELAY_MS` | 読み切り後、AI が回答に踏み切るまでの待ち時間（ミリ秒、既定 5000）。0 なら読み切りと同時 |
 | `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` / `XAI_API_KEY` | AI 参加者の回答（3 モデルの合議）。未設定なら早押しはするが回答できない |
 
 ```bash
@@ -222,6 +223,22 @@ AI の回答は文字で得られるので自動判定もできるが、採ら�
 | `parallel` | パラレル問題か。**押下判定には使わない**（記録用）ため目盛りを出さない |
 
 `parallel` を使わない理由は [jev-poc](jev-poc.md#なぜこの形なのか) を参照。
+
+### 読み切り後の待ち時間
+
+読み切っても早押しは締め切られない（締め切るのは出題者の「タイムアップ」）。
+人間はこの間も押せるので、**AI も押せないと対決として不公平になる**。
+
+ただし即座には押させない。読み切りの直後は人間が考えている時間であり、
+そこへ AI が割り込むと考える間が無くなる。
+
+既定で 5 秒待つ。`AI_READING_ENDED_DELAY_MS` で変えられる（0 なら読み切りと同時）。
+
+```bash
+AI_READING_ENDED_DELAY_MS=0 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+この間に人間が押せば AI は押せない（`too_late`）。逆も同じ。
 
 ### AI が使えない場合
 
