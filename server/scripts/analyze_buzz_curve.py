@@ -21,6 +21,11 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+# server/ を import パスへ通す（スクリプトを直接実行するため）
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.jev.decision import decide  # noqa: E402
+
 DEFAULT_INPUT = Path(__file__).resolve().parents[1] / "logs" / "buzz_curve.csv"
 
 #: 試す buzz の閾値。
@@ -152,6 +157,57 @@ def _table(by_question: dict[str, list[Row]]) -> None:
                 f"{min(ratios) * 100:5.1f}%  {max(ratios) * 100:5.1f}%"
             )
         print()
+
+
+def _rule_result(by_question: dict[str, list[Row]]) -> None:
+    """実装された押下規則（app.jev.decision）での成績。
+
+    表の総当たりと違い、これが jev-poc で実際に起きることである。
+    スクリプトと UI が同じ関数を使うことで、オフラインで測った成績と
+    実機の挙動がズレないようにしている。
+    """
+    has_asking = any(
+        r.asking is not None for rows in by_question.values() for r in rows
+    )
+    if not has_asking:
+        return
+
+    print("  実装された押下規則（app.jev.decision.decide）")
+    ratios = []
+    wrong = 0
+    for question_id, rows in sorted(by_question.items()):
+        pressed = None
+        for row in rows:
+            if decide(row.partial_text, row.buzz, row.asking).press:
+                pressed = row
+                break
+
+        full = rows[-1].partial_text
+        marker = full.find(PIVOT)
+        tag = "P" if marker >= 0 else " "
+
+        if pressed is None:
+            print(f"    {tag} {question_id:14s} 押さず")
+            continue
+
+        ratios.append(pressed.chars / pressed.total_chars)
+        # パラレル問題で転換前に押していれば誤答
+        bad = marker >= 0 and pressed.chars <= marker
+        if bad:
+            wrong += 1
+        print(
+            f"    {tag} {question_id:14s} {pressed.chars:3d}字 "
+            f"({pressed.chars / pressed.total_chars * 100:4.1f}%)"
+            f"{'  ← 転換前！誤答' if bad else ''}"
+        )
+
+    if ratios:
+        print(
+            f"    押下 {len(ratios)}/{len(by_question)} 問  "
+            f"平均位置 {statistics.mean(ratios) * 100:.1f}%  "
+            f"転換前の誤押し {wrong} 件"
+        )
+    print()
 
 
 def _asking_table(by_question: dict[str, list[Row]]) -> None:
@@ -308,6 +364,7 @@ def main() -> int:
         print()
         _ceiling(by_question)
         _table(by_question)
+        _rule_result(by_question)
         _asking_table(by_question)
         _danger_check(by_question)
         _parallel_check(by_question)
