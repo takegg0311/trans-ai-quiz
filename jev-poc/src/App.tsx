@@ -8,6 +8,7 @@ import {
   type ManifestEntry,
 } from './lib/manifest';
 import { playJingle } from './lib/sound';
+import { useAiAnswer } from './lib/useAiAnswer';
 import { useAutoBuzz } from './lib/useAutoBuzz';
 import {
   canAnswer,
@@ -15,6 +16,7 @@ import {
   initialState,
   quizReducer,
 } from './state/quizMachine';
+import { AiAnswerView } from './components/AiAnswerView';
 import { AnswerInput } from './components/AnswerInput';
 import { BuzzButton } from './components/BuzzButton';
 import { JevPanel } from './components/JevPanel';
@@ -38,8 +40,15 @@ export function App() {
   const buzzRef = useRef<(chars: number, reason: string) => boolean>(() => false);
   /** 自動判定の停止。handleBuzz から呼ぶため ref で持つ */
   const autoStopRef = useRef<() => void>(() => {});
+  /**
+   * 次に reading へ入るのが「再開」かどうか。
+   *
+   * AI が誤答して人間へ解答権が移る場合、読み上げは止めた位置から続ける。
+   * phase だけでは「最初から」と「再開」を区別できないため、ここで持つ。
+   */
+  const resumeRef = useRef(false);
 
-  const { phase, question, frozenLength, judgedLength, judgement, error } = state;
+  const { phase, question, frozenLength, judgedLength, judgement, aiAttempt, error } = state;
 
   /** Jev が押すと判断したときに呼ばれる。受理したかを返す */
   const handleAutoPress = useCallback(
@@ -49,6 +58,8 @@ export function App() {
 
   const auto = useAutoBuzz(handleAutoPress);
   autoStopRef.current = auto.stop;
+
+  const ai = useAiAnswer();
 
   // 起動時に問題一覧を読み込む
   useEffect(() => {
@@ -102,8 +113,15 @@ export function App() {
     const audio = audioRef.current;
     if (audio === null) return;
 
-    audio.currentTime = 0;
-    setCurrentTime(0);
+    // AI の誤答で reading へ戻った場合は、止めた位置から再開する。
+    // 先頭へ巻き戻すと問題文を最初から読み直すことになり、
+    // AI が押した意味が無くなる（人間が全文を聞けてしまう）。
+    if (!resumeRef.current) {
+      audio.currentTime = 0;
+      setCurrentTime(0);
+    }
+    resumeRef.current = false;
+
     void audio.play().catch((reason: unknown) => {
       console.warn('[audio] 問題音声を再生できませんでした', reason);
     });
@@ -137,6 +155,7 @@ export function App() {
     // データ読み込みを待つ間、前問の結果を残したままにしない
     dispatch({ type: 'next' });
     auto.reset();
+    ai.reset();
     setPressedReason(null);
 
     try {
@@ -152,7 +171,7 @@ export function App() {
         message: reason instanceof Error ? reason.message : String(reason),
       });
     }
-  }, [entries, auto]);
+  }, [entries, auto, ai]);
 
   /**
    * 早押し。音声と文字送りの双方をその場で止める。
@@ -172,29 +191,56 @@ export function App() {
       const at = audio?.currentTime ?? currentTime;
       audio?.pause();
       stopTracking();
+      // rAF を止めた時点で state の currentTime は最後のフレームのまま古くなる。
+      // AI が誤答して frozenLength が null へ戻ると、表示はこの state を基準に
+      // 戻るため、追従が再開するまで一瞬だけ文字が減って見える。
+      setCurrentTime(at);
 
       // 押したことのフィードバックなので、鳴り終わりを待たずに回答へ進ませる
       void playJingle('buzz');
 
+      // 以降この問題では判定しない。押した後に Jev の判定が続くと、
+      // 届いた応答が押下を試みることになる。
+      autoStopRef.current();
+
       // 表示は、実際に読み進んだところまでを残す。自動の場合、判定の間に
       // 再生が進んで判定時点より先まで読まれているが、そこで表示を判定位置
       // まで巻き戻すと、読まれた文字が消えて見える。
-      //
+      const shown = Math.max(visibleLength(question.alignment, at), atChars ?? 0);
+      const text = [...question.text].slice(0, shown).join('');
+
+      // 人間が押した場合。従来どおり人間が回答する
+      if (atChars === undefined) {
+        dispatch({ type: 'buzz', visibleLength: shown });
+        return true;
+      }
+
+      // Jev が押した場合。LLM へ回答させる。
       // 押す根拠になった位置（atChars）は judgedLength として別に持ち、
       // 表示ではなく「どこで判定したか」を示すためだけに使う。
-      // 以降この問題では判定しない。手動で押した後に Jev の判定が
-      // 続くと、届いた応答が押下を試みることになる。
-      autoStopRef.current();
+      dispatch({ type: 'aiBuzz', visibleLength: shown, judgedLength: atChars });
 
-      const shown = visibleLength(question.alignment, at);
-      dispatch({
-        type: 'buzz',
-        visibleLength: Math.max(shown, atChars ?? 0),
-        judgedLength: atChars ?? null,
+      // 渡すのは実際に読み上げられた部分まで（shown）。Jev が判断した位置
+      // （atChars）ではない。画面にはここまで出ており、人間が同じ位置で
+      // 押した場合にも同じ範囲が見えている。AI にだけ狭い範囲を渡すと
+      // 対決の条件が人間より不利になる。
+      ai.run(text, (consensus) => {
+        const correct =
+          consensus.answer !== null && isCorrect(consensus.answer, question.answers);
+        void playJingle(correct ? 'correct' : 'wrong');
+        // 誤答なら reading へ戻る。止めた位置から読み上げを続けるため、
+        // 再開であることを effect へ伝える
+        resumeRef.current = !correct;
+        dispatch({
+          type: 'aiSettled',
+          answer: consensus.answer,
+          consensus,
+          correct,
+        });
       });
       return true;
     },
-    [phase, question, currentTime, stopTracking],
+    [phase, question, currentTime, stopTracking, ai],
   );
 
   // 自動側から最新の handleBuzz を呼べるようにする。
@@ -225,7 +271,7 @@ export function App() {
     (input: string) => {
       if (question === null) return;
       const correct = isCorrect(input, question.answers);
-      dispatch({ type: 'judged', judgement: { input, correct } });
+      dispatch({ type: 'judged', judgement: { input, correct, by: 'human' } });
       void playJingle(correct ? 'correct' : 'wrong');
     },
     [question],
@@ -282,6 +328,23 @@ export function App() {
 
           {isPlaying && (
             <BuzzButton disabled={!canBuzz(phase)} onBuzz={() => handleBuzz()} />
+          )}
+
+          {(phase === 'aiAnswering' || aiAttempt !== null) && (
+            <AiAnswerView
+              slots={ai.state.slots}
+              consensus={ai.state.consensus}
+              correct={
+                aiAttempt === null
+                  ? null
+                  : judgement?.by === 'ai' && judgement.correct
+              }
+              available={ai.health === 'online'}
+            />
+          )}
+
+          {phase === 'reading' && aiAttempt !== null && (
+            <p className="notice">AI が外しました。解答権はあなたです</p>
           )}
 
           {pressedReason !== null && (
