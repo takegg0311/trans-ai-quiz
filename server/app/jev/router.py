@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from .client import JevError, evaluate
 from .config import ENV_KEY, api_key, model
-from .questions import NARROWED_LEVELS, QUESTIONS
+from .questions import ACTIVE_QUESTIONS, NARROWED_LEVELS
 
 router = APIRouter(prefix="/api/jev", tags=["jev"])
 
@@ -59,7 +59,7 @@ async def judge(request: JudgeRequest) -> dict[str, object]:
     started = time.perf_counter()
 
     try:
-        answers = await evaluate(request.partial_text, QUESTIONS)
+        answers = await evaluate(request.partial_text, ACTIVE_QUESTIONS)
     except JevError as error:
         return {
             "ok": False,
@@ -79,6 +79,7 @@ async def judge(request: JudgeRequest) -> dict[str, object]:
         "ok": True,
         "buzz": _noul(answers, "buzz"),
         "parallel": _noul(answers, "parallel"),
+        "asking": _noul(answers, "asking"),
         "narrowed": _score(answers, "narrowed"),
         "narrowed_confidence": _confidence(answers, "narrowed"),
         "elapsed_ms": _elapsed_ms(started),

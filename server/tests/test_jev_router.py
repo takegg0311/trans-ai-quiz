@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from app.jev import router as jev_router
 from app.jev.client import JevError
-from app.jev.questions import NARROWED_LEVELS
+from app.jev.questions import ACTIVE_QUESTIONS, NARROWED_LEVELS
 
 
 @pytest.fixture
@@ -24,11 +24,17 @@ def client() -> Iterator[TestClient]:
         yield test_client
 
 
-def _answers(buzz: float = 0.1, parallel: float = 0.0, narrowed: float = 0.5) -> dict:
+def _answers(
+    buzz: float = 0.1,
+    parallel: float = 0.0,
+    narrowed: float = 0.5,
+    asking: float = 0.5,
+) -> dict:
     """TypeSafe の応答形。noul に confidence が無いのは仕様どおり。"""
     return {
         "buzz": {"type": "noul", "noul": buzz},
         "parallel": {"type": "noul", "noul": parallel},
+        "asking": {"type": "noul", "noul": asking},
         "narrowed": {
             "type": "score",
             "score": narrowed,
@@ -71,11 +77,11 @@ def test_health_は_narrowed_の段階数を返す(
     assert body["narrowed_levels"] == NARROWED_LEVELS
 
 
-def test_judge_は_3_問の値を返す(
+def test_judge_は各質問の値を返す(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def fake_evaluate(state: str, questions: dict) -> dict:
-        return _answers(buzz=0.94, parallel=0.02, narrowed=2.9)
+        return _answers(buzz=0.94, parallel=0.02, narrowed=2.9, asking=0.81)
 
     monkeypatch.setattr(jev_router, "evaluate", fake_evaluate)
 
@@ -84,8 +90,28 @@ def test_judge_は_3_問の値を返す(
     assert body["ok"] is True
     assert body["buzz"] == 0.94
     assert body["parallel"] == 0.02
+    assert body["asking"] == 0.81
     assert body["narrowed"] == 2.9
     assert body["narrowed_confidence"] == 0.88
+
+
+def test_judge_は_asking_を返す(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """押下判定（decision.py）が asking を必要とするため。
+
+    これが欠けると、危険区間で常に「asking が取得できていない」となり
+    自動早押しが働かなくなる。
+    """
+    async def fake_evaluate(state: str, questions: dict) -> dict:
+        return _answers()
+
+    monkeypatch.setattr(jev_router, "evaluate", fake_evaluate)
+
+    body = client.post("/api/jev/judge", json={"partial_text": "日本の"}).json()
+
+    assert "asking" in ACTIVE_QUESTIONS
+    assert body["asking"] is not None
 
 
 def test_judge_は_読み上げ済みの文字列だけを送る(
@@ -107,7 +133,7 @@ def test_judge_は_読み上げ済みの文字列だけを送る(
     client.post("/api/jev/judge", json={"partial_text": "日本の小説家で"})
 
     assert captured["state"] == "日本の小説家で"
-    assert captured["questions"] == {"buzz", "parallel", "narrowed"}
+    assert captured["questions"] == set(ACTIVE_QUESTIONS)
 
 
 def test_judge_は失敗しても_200_で返す(

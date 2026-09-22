@@ -231,3 +231,11 @@ QUESTIONS_V3: Final[dict[str, dict[str, object]]] = {
 }
 
 VARIANTS["v3"] = QUESTIONS_V3
+
+
+#: /judge が実際に使う質問セット。
+#
+# v3 を採る。押下判定（decision.py）が asking を必要とし、v1/v2 には
+# 含まれないため。v1/v2 は計測スクリプトから variant として選べるが、
+# エンドポイントは押下に使うものだけを返す。
+ACTIVE_QUESTIONS: Final[dict[str, dict[str, object]]] = QUESTIONS_V3
