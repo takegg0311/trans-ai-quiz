@@ -24,7 +24,12 @@ function toHalfWidth(value: string): string {
 export function normalizeAnswer(value: string): string {
   return toHalfWidth(value.normalize('NFKC'))
     .toLowerCase()
-    .replace(/[\s・･\-ー―‐]/g, '');
+    .replace(/[\s・･\-ー―‐]/g, '')
+    // 括弧類を落とす。LLM は作品名を『檸檬』「檸檬」のように括って返すことが
+    // あり、人間はそのまま「檸檬」と入力する。これを別の答えとして扱うと、
+    // 合議の多数決が割れ（実測: Claude と Grok が 檸檬、Gemini が 『檸檬』）、
+    // 正誤判定でも表記の違いだけで × になる。
+    .replace(/[「」『』（）()\[\]【】〈〉《》"'”’]/g, '');
 }
 
 /** 入力が正解候補のいずれかと部分一致するか */

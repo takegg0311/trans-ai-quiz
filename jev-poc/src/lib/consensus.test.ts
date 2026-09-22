@@ -52,6 +52,20 @@ describe('多数決', () => {
     expect(result.supporters).toHaveLength(3);
   });
 
+  it('括弧の有無で多数決が割れない', () => {
+    // 実測で起きたケース。Claude と Grok が「檸檬」、Gemini が「『檸檬』」を
+    // 返した。LLM は作品名を括って返すことがあり、括弧を残すと
+    // 実質同じ答えなのに別グループへ分かれる。
+    const result = decideConsensus([
+      entry('claude', ok('檸檬', 3045)),
+      entry('gemini', ok('『檸檬』', 2736)),
+      entry('grok', ok('檸檬', 4911)),
+    ]);
+
+    expect(result.reason).toBe('majority');
+    expect(result.supporters).toHaveLength(3);
+  });
+
   it('表記が揺れていても同じ回答として数える', () => {
     // 正規化で揃えないと、実質同じ答えなのに最速採用へ落ちる
     const result = decideConsensus([

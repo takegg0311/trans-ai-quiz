@@ -633,3 +633,77 @@ body {
 .question-after-judged {
   color: var(--muted);
 }
+
+/* --- AI の回答 --- */
+
+.ai-answer {
+  width: 100%;
+  padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  text-align: left;
+}
+
+.ai-answer-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.ai-answer-header h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.ai-answer-pending {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.ai-answer-table {
+  width: 100%;
+  margin-top: 0.8rem;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-answer-table th,
+.ai-answer-table td {
+  padding: 0.3rem 0.4rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: left;
+}
+
+/* 応答時間だけ右揃え。桁を比べやすくする */
+.ai-answer-table th:last-child,
+.ai-answer-table td:last-child {
+  text-align: right;
+}
+
+/* 合議で採用されたモデル */
+.ai-answer-table tr.ai-adopted {
+  background: rgba(255, 213, 74, 0.12);
+}
+
+.ai-answer-result {
+  margin: 0.8rem 0 0;
+  padding: 0.6rem;
+  border-radius: 4px;
+  font-size: 0.95rem;
+}
+
+.ai-answer-result.is-correct {
+  background: rgba(53, 192, 127, 0.15);
+  border: 1px solid var(--correct);
+}
+
+.ai-answer-result.is-wrong {
+  background: rgba(229, 72, 77, 0.15);
+  border: 1px solid var(--wrong);
+}
+
+.ai-answer-reason {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
