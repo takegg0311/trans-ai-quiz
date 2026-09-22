@@ -234,8 +234,8 @@ def main() -> int:
     parser.add_argument(
         "--variant",
         choices=sorted(VARIANTS),
-        default="v2",
-        help="使う質問定義（既定: v2。v1 は初回計測に使った元の文面）",
+        default="v3",
+        help="使う質問定義（既定: v3。/api/jev/judge と同じもの）",
     )
     parser.add_argument(
         "--only-parallel",

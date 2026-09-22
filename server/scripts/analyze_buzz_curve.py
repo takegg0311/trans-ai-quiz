@@ -253,7 +253,7 @@ def _danger_check(by_question: dict[str, list[Row]]) -> None:
     print("  転換前の誤押し（「ですが」より前で buzz>=0.70 に達した点）")
     total_danger = 0
     blocked_by_parallel = 0
-    blocked_by_asking = 0
+    blocked_by_rule = 0
 
     for question_id, rows in sorted(by_question.items()):
         full = rows[-1].partial_text
@@ -269,14 +269,19 @@ def _danger_check(by_question: dict[str, list[Row]]) -> None:
             continue
 
         total_danger += len(danger)
+        # parallel ゲートは計測の結果採らなかった案。比較の基準として残す
         par = sum(1 for r in danger if r.parallel is not None and r.parallel > 0.35)
-        ask = sum(1 for r in danger if r.asking is not None and r.asking < 0.50)
+        # 出荷している規則そのもので数える。閾値を直接書くと、decision.py を
+        # 変えたときにここが追従せず、実機と違う阻止数で判断することになる
+        rule = sum(
+            1 for r in danger if not decide(r.partial_text, r.buzz, r.asking).press
+        )
         blocked_by_parallel += par
-        blocked_by_asking += ask
+        blocked_by_rule += rule
 
         detail = f"parallel>0.35 で {par}/{len(danger)} 件を阻止"
         if has_asking:
-            detail += f" / asking<0.50 で {ask}/{len(danger)} 件を阻止"
+            detail += f" / 出荷規則で {rule}/{len(danger)} 件を阻止"
         print(f"    {question_id}  危険点 {len(danger)} 件  {detail}")
 
     if total_danger == 0:
@@ -285,9 +290,9 @@ def _danger_check(by_question: dict[str, list[Row]]) -> None:
         return
 
     print(f"    合計 危険点 {total_danger} 件")
-    print(f"      parallel>0.35 ゲート: {blocked_by_parallel}/{total_danger} 件を阻止")
+    print(f"      parallel>0.35 ゲート: {blocked_by_parallel}/{total_danger} 件を阻止（不採用の案）")
     if has_asking:
-        print(f"      asking<0.50 ゲート:   {blocked_by_asking}/{total_danger} 件を阻止")
+        print(f"      出荷規則（decide）:   {blocked_by_rule}/{total_danger} 件を阻止")
     print()
 
 
