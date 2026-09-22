@@ -28,12 +28,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.jev.client import JevError, evaluate  # noqa: E402
 from app.jev.config import api_key  # noqa: E402
-from app.jev.questions import QUESTIONS  # noqa: E402
+from app.jev.questions import VARIANTS  # noqa: E402
 from app.quiz import QUIZ_DATA_DIR, QuizDataError, load_questions  # noqa: E402
 
 DEFAULT_OUTPUT = Path(__file__).resolve().parents[1] / "logs" / "buzz_curve.csv"
 
 COLUMNS = (
+    "variant",
     "question_id",
     "answer",
     "total_chars",
@@ -41,6 +42,7 @@ COLUMNS = (
     "partial_text",
     "buzz",
     "parallel",
+    "asking",
     "narrowed",
     "narrowed_confidence",
     "elapsed_ms",
@@ -52,6 +54,7 @@ COLUMNS = (
 class Sample:
     """1 問 × 1 文字数ぶんの観測。"""
 
+    variant: str
     question_id: str
     answer: str
     total_chars: int
@@ -59,6 +62,7 @@ class Sample:
     partial_text: str
     buzz: float | None = None
     parallel: float | None = None
+    asking: float | None = None
     narrowed: float | None = None
     narrowed_confidence: float | None = None
     elapsed_ms: int = 0
@@ -66,6 +70,7 @@ class Sample:
 
     def as_row(self) -> dict[str, object]:
         return {
+            "variant": self.variant,
             "question_id": self.question_id,
             "answer": self.answer,
             "total_chars": self.total_chars,
@@ -73,6 +78,7 @@ class Sample:
             "partial_text": self.partial_text,
             "buzz": _fmt(self.buzz),
             "parallel": _fmt(self.parallel),
+            "asking": _fmt(self.asking),
             "narrowed": _fmt(self.narrowed),
             "narrowed_confidence": _fmt(self.narrowed_confidence),
             "elapsed_ms": self.elapsed_ms,
@@ -92,7 +98,14 @@ def _number(answer: object, field: str) -> float | None:
     return float(value) if isinstance(value, (int, float)) else None
 
 
-async def _measure_one(question_id: str, answer: str, text: str, step: int) -> list[Sample]:
+async def _measure_one(
+    variant: str,
+    questions: dict[str, dict[str, object]],
+    question_id: str,
+    answer: str,
+    text: str,
+    step: int,
+) -> list[Sample]:
     """1 問を 1 文字ずつ伸ばしながら評価する。
 
     逐次に投げるのは、読み上げの進行を模すためではなく、レート制限を避けるため。
@@ -107,6 +120,7 @@ async def _measure_one(question_id: str, answer: str, text: str, step: int) -> l
     for end in range(step, total + 1, step):
         partial = "".join(chars[:end])
         sample = Sample(
+            variant=variant,
             question_id=question_id,
             answer=answer,
             total_chars=total,
@@ -116,12 +130,14 @@ async def _measure_one(question_id: str, answer: str, text: str, step: int) -> l
 
         started = time.perf_counter()
         try:
-            answers = await evaluate(partial, QUESTIONS)
+            answers = await evaluate(partial, questions)
         except JevError as error:
             sample.error = f"{error.kind}: {error.message}"
         else:
             sample.buzz = _number(answers.get("buzz"), "noul")
             sample.parallel = _number(answers.get("parallel"), "noul")
+            # asking は v3 以降にのみ存在する。無ければ欠測のまま。
+            sample.asking = _number(answers.get("asking"), "noul")
             sample.narrowed = _number(answers.get("narrowed"), "score")
             sample.narrowed_confidence = _number(answers.get("narrowed"), "confidence")
         sample.elapsed_ms = int((time.perf_counter() - started) * 1000)
@@ -140,11 +156,18 @@ def _print_progress(sample: Sample) -> None:
     print(
         f"  {sample.chars:3d}/{sample.total_chars}  "
         f"buzz={_fmt(sample.buzz)}  parallel={_fmt(sample.parallel)}  "
-        f"narrowed={_fmt(sample.narrowed)}  {sample.elapsed_ms}ms"
+        f"asking={_fmt(sample.asking)}  narrowed={_fmt(sample.narrowed)}  "
+        f"{sample.elapsed_ms}ms"
     )
 
 
-async def _run(limit: int | None, step: int, output: Path) -> int:
+async def _run(
+    limit: int | None,
+    step: int,
+    output: Path,
+    variant: str,
+    only_parallel: bool,
+) -> int:
     if api_key() is None:
         print("TYPESAFE_API_KEY が設定されていません（server/.env）", file=sys.stderr)
         return 1
@@ -154,6 +177,11 @@ async def _run(limit: int | None, step: int, output: Path) -> int:
     except QuizDataError as error:
         print(f"問題データを読み込めませんでした: {error}", file=sys.stderr)
         return 1
+
+    # パラレル問題だけを測りたい場合に絞る。初回計測では 1 問も含まれず、
+    # parallel の誤検出に気づくのが遅れた。
+    if only_parallel:
+        questions = [q for q in questions if "ですが" in q.text]
 
     if limit is not None:
         questions = questions[:limit]
@@ -168,13 +196,22 @@ async def _run(limit: int | None, step: int, output: Path) -> int:
     for index, question in enumerate(questions, start=1):
         print(f"[{index}/{len(questions)}] {question.id}  正解: {question.answers[0]}")
         samples = await _measure_one(
-            question.id, question.answers[0], question.text, step
+            variant,
+            VARIANTS[variant],
+            question.id,
+            question.answers[0],
+            question.text,
+            step,
         )
         all_samples.extend(samples)
 
-    with output.open("w", encoding="utf-8", newline="") as handle:
+    # 追記にして、variant を変えた計測を 1 ファイルへ貯める。
+    # 比較のたびに前回分が消えると、同じ問題で測り直す手間がかかる。
+    exists = output.is_file()
+    with output.open("a" if exists else "w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=COLUMNS)
-        writer.writeheader()
+        if not exists:
+            writer.writeheader()
         for sample in all_samples:
             writer.writerow(sample.as_row())
 
@@ -195,6 +232,17 @@ def main() -> int:
         help="何文字ごとに評価するか（既定: 1。API 呼び出しを減らすなら増やす）",
     )
     parser.add_argument(
+        "--variant",
+        choices=sorted(VARIANTS),
+        default="v2",
+        help="使う質問定義（既定: v2。v1 は初回計測に使った元の文面）",
+    )
+    parser.add_argument(
+        "--only-parallel",
+        action="store_true",
+        help="「ですが」を含むパラレル問題だけを測る",
+    )
+    parser.add_argument(
         "--output", type=Path, default=DEFAULT_OUTPUT, help=f"出力先（既定: {DEFAULT_OUTPUT}）"
     )
     args = parser.parse_args()
@@ -202,7 +250,9 @@ def main() -> int:
     if args.step < 1:
         parser.error("--step は 1 以上である必要があります")
 
-    return asyncio.run(_run(args.limit, args.step, args.output))
+    return asyncio.run(
+        _run(args.limit, args.step, args.output, args.variant, args.only_parallel)
+    )
 
 
 if __name__ == "__main__":
