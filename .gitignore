@@ -30,6 +30,10 @@ llm-poc/logs/
 # 確定曲線の計測結果。API を叩いて貯まるものでリポジトリには含めない
 server/logs/
 
+# 外部モデルのレビュー結果。手元で貯まるものでリポジトリには含めない
+# （.cursor/rules/ は追跡対象なので .cursor/ ごとは無視しない）
+.cursor/reviews/
+
 # Python
 __pycache__/
 *.py[cod]
