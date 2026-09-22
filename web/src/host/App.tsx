@@ -8,6 +8,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { alignmentDuration, visibleLength } from '../lib/align';
 import { playJingle } from '../lib/sound';
 import { useConnection } from '../lib/useConnection';
+import { AiAnswerView } from './AiAnswerView';
+import { AiPanel } from './AiPanel';
+import { useAiPlayer } from './useAiPlayer';
 import type { ClientMessage, RoomStateMessage, ServerMessage } from '../protocol';
 import { Controls } from './Controls';
 import { JoinPanel } from './JoinPanel';
@@ -109,6 +112,9 @@ export function App() {
     setFrozenLength(visibleLength(loaded.alignment, currentPosition()));
   }, [stopTracking, pauseSilentClock, currentPosition]);
 
+  /** AI の判定停止。handleMessage から呼ぶため ref で持つ */
+  const aiStopRef = useRef<() => void>(() => {});
+
   const handleOpen = useCallback((send: (message: ClientMessage) => void) => {
     send({ type: 'host_hello', host_token: hostToken.current });
   }, []);
@@ -125,6 +131,8 @@ export function App() {
           // 押したフィードバックなので、鳴り終わりは待たない
           freeze();
           void playJingle('buzz');
+          // 人間が先に押した場合も含め、以降このラウンドでは判定しない
+          aiStopRef.current();
           break;
 
         case 'error':
@@ -139,6 +147,20 @@ export function App() {
 
   const phase = state?.phase ?? 'idle';
   const roundId = state?.round_id ?? 0;
+
+  const ai = useAiPlayer({ send, roundId });
+  aiStopRef.current = ai.stop;
+
+  /** AI の参加を切り替える。参加させる側だけサーバへ登録を送る */
+  const handleToggleAi = useCallback(
+    (next: boolean) => {
+      ai.setEnabled(next);
+      // 参加を外しても Player は消さない。投影の一覧から名前が消えると、
+      // 途中まで居た AI の戦績が追えなくなる（人間の切断と同じ扱い）
+      if (next) send({ type: 'ai_join', name: 'AI' });
+    },
+    [ai, send],
+  );
 
   // 新しい問題が読み込まれたら、ジングルを鳴らしてから読み上げを始める
   const questionId = question?.id ?? null;
@@ -313,6 +335,23 @@ export function App() {
       : (frozenLength ??
         (hasAlignment ? visibleLength(question.alignment, currentTime) : [...question.text].length));
 
+  // ラウンドが変わったら AI の判定状態を捨てる
+  useEffect(() => {
+    ai.reset();
+    // reset は安定した参照なので、ラウンドの変化だけで走らせる
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roundId]);
+
+  // 読み上げ中、表示文字数が変わるたびに Jev へ判定を投げる。
+  // 時間ではなく文字数の変化で駆動するのは、無音区間や長音で同じ文字列を
+  // 繰り返し投げないため。送信の間引きは useAiPlayer が行う。
+  useEffect(() => {
+    if (phase !== 'reading' || question === null || shownLength === 0) return;
+    ai.feed([...question.text].slice(0, shownLength).join(''), shownLength);
+    // ai 全体を依存に置くと毎フレーム実行される。必要なのは feed だけ
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, question, shownLength, ai.feed]);
+
   if (hostToken.current === '') {
     return (
       <main className="host">
@@ -356,11 +395,23 @@ export function App() {
           answers={state?.question?.answers ?? null}
           judgement={state?.judgement ?? null}
         />
+
+        {/* 正解と同じ phase でのみサーバが載せてくる */}
+        {state?.ai_answer != null && <AiAnswerView answer={state.ai_answer} />}
       </section>
 
       <aside className="host-side">
         <JoinPanel />
         <PlayerList players={state?.players ?? []} buzzedId={state?.buzzed?.player_id ?? null} />
+
+        <AiPanel
+          enabled={ai.enabled}
+          readiness={ai.readiness}
+          lastJudgement={ai.lastJudgement}
+          disabled={phase !== 'idle' && phase !== 'result'}
+          onToggle={handleToggleAi}
+          onRefresh={() => void ai.refresh()}
+        />
       </aside>
 
       <footer className="host-controls">
