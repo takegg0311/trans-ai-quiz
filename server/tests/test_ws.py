@@ -439,11 +439,17 @@ class TestAiPlayer:
 
             assert error["code"] == "forbidden"
 
-    def test_ai_の回答は_check_まで投影に出ない(self, client: TestClient) -> None:
-        """正解と同じ phase でのみ出す。
+    def test_ai_の回答は押した直後から出て正解は_check_まで出ない(
+        self, client: TestClient
+    ) -> None:
+        """AI の回答は正解より早く出す。**正解の露出は変えない。**
 
-        早い phase で載せると、投影を見ている参加者が AI の答えを読んで
-        そのまま答えられてしまう。
+        AI の回答は「AI が何と答えたか」であって正解ではなく、AI が押した
+        時点でそのラウンドの解答権は確定している（ダブルチャンスは無い）。
+        投影を見ている参加者が読んでも得をしないため、押した直後から出す。
+
+        一方で正解を早く出すと、それを読んで答えられてしまう。
+        2 つが別の制御になっていることをここで確かめる。
         """
         with client.websocket_connect("/ws") as host:
             host.send_json({"type": "host_hello", "host_token": HOST_TOKEN})
@@ -473,16 +479,25 @@ class TestAiPlayer:
                     "models": [],
                 }
             )
+            # ai_answer が載った room_state を待つ。phase だけで待つと、
+            # 合議が届く前のブロードキャストを拾ってしまう
             state = receive_until(
-                host, "room_state", where=lambda m: m["phase"] == "buzzed"
+                host,
+                "room_state",
+                where=lambda m: m["phase"] == "buzzed" and m["ai_answer"] is not None,
             )
 
-            assert state["ai_answer"] is None
+            # AI の回答は buzzed から出る
+            assert state["ai_answer"]["answer"] == "富士山"
+            # 正解はまだ出ない
+            assert state["question"]["answers"] is None
 
             host.send_json({"type": "check", "round_id": round_id})
             state = receive_until(host, "room_state", where=lambda m: m["phase"] == "check")
 
-            assert state["ai_answer"] is not None
+            # check で正解が出る。AI の回答は出たまま
+            # （どの問題が抽選されるかはシャッフル次第なので、内容は問わない）
+            assert state["question"]["answers"] is not None
             assert state["ai_answer"]["answer"] == "富士山"
 
     def test_ai_が参加していなければ_ai_buzz_は弾く(self, client: TestClient) -> None:
