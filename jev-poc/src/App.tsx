@@ -191,6 +191,10 @@ export function App() {
       const at = audio?.currentTime ?? currentTime;
       audio?.pause();
       stopTracking();
+      // rAF を止めた時点で state の currentTime は最後のフレームのまま古くなる。
+      // AI が誤答して frozenLength が null へ戻ると、表示はこの state を基準に
+      // 戻るため、追従が再開するまで一瞬だけ文字が減って見える。
+      setCurrentTime(at);
 
       // 押したことのフィードバックなので、鳴り終わりを待たずに回答へ進ませる
       void playJingle('buzz');
@@ -335,6 +339,7 @@ export function App() {
                   ? null
                   : judgement?.by === 'ai' && judgement.correct
               }
+              available={ai.health === 'online'}
             />
           )}
 
