@@ -33,6 +33,7 @@ import secrets
 from dataclasses import dataclass, field
 
 from .protocol import (
+    AiAnswerView,
     BuzzedView,
     BuzzRejectReason,
     JudgementView,
@@ -60,6 +61,10 @@ class Player:
     connected: bool = True
     # お手つき。同一ラウンドの間だけ早押しを禁じる
     locked_out: bool = False
+    # AI（Jev + LLM 合議）の参加者か。
+    # 早押しの扱いは人間と同じで、buzz の排他も locked_out もそのまま乗る。
+    # 区別するのは投影の表示と、AI の回答を紐付けるためだけ。
+    is_ai: bool = False
 
     def to_view(self) -> PlayerView:
         return PlayerView(
@@ -67,6 +72,7 @@ class Player:
             name=self.name,
             connected=self.connected,
             locked_out=self.locked_out,
+            is_ai=self.is_ai,
         )
 
 
@@ -89,6 +95,9 @@ class Room:
     question: Question | None = None
     buzzed: Player | None = None
     judgement: JudgementView | None = None
+    # AI の合議結果。出題者フロントが ai_answer で送ってくる。
+    # 受け取っても phase は変えない（判定は出題者が judge を押したとき）。
+    ai_answer: AiAnswerView | None = None
 
     players: dict[str, Player] = field(default_factory=dict)
     # token -> player_id。再接続の名寄せに使う
@@ -128,6 +137,56 @@ class Room:
         self.players[player.id] = player
         self._tokens[player.token] = player.id
         return player
+
+    def join_ai(self, name: str) -> Player:
+        """AI を参加者として登録する。既に居ればそれを返す。
+
+        AI 専用の分岐を作らず通常の Player として持つ。buzz の排他・
+        locked_out・display_names・投影の一覧にそのまま乗せるため。
+
+        出題者フロントを開き直すたびに増えないよう、既存の AI を使い回す。
+        """
+        for player in self.players.values():
+            if player.is_ai:
+                player.connected = True
+                return player
+
+        trimmed = name.strip()[:MAX_NAME_LENGTH] or "AI"
+        player = Player(
+            id=f"p_{self._next_player_number}",
+            name=trimmed,
+            token=secrets.token_urlsafe(24),
+            is_ai=True,
+        )
+        self._next_player_number += 1
+        self.players[player.id] = player
+        self._tokens[player.token] = player.id
+        return player
+
+    def ai_player(self) -> Player | None:
+        """登録済みの AI を返す。居なければ None。"""
+        for player in self.players.values():
+            if player.is_ai:
+                return player
+        return None
+
+    def set_ai_answer(self, round_id: int, answer: AiAnswerView) -> bool:
+        """AI の合議結果を預かる。
+
+        **phase は変えない。** 判定は出題者が judge を押したときに行う。
+        合議が固まった瞬間に判定すると、投影を見ている全員に
+        「正解はこれです。AI の回答はこれでした」と見せる間が無くなる。
+
+        AI が押していないラウンドでは受け取らない。人間が押した後に
+        遅れて届いた合議結果で、投影に AI の回答が出てしまうため。
+        """
+        if round_id != self.round_id:
+            return False
+        if self.buzzed is None or not self.buzzed.is_ai:
+            return False
+
+        self.ai_answer = answer
+        return True
 
     def disconnect(self, player_id: str) -> None:
         """切断を記録する。一覧からは消さない。
@@ -176,6 +235,8 @@ class Room:
         self.question = question
         self.buzzed = None
         self.judgement = None
+        # 前問の AI の回答を持ち越さない
+        self.ai_answer = None
 
         # ラウンドが変わればお手つきは解除する
         for player in self.players.values():
@@ -347,12 +408,21 @@ class Room:
                     name=names.get(player.id, player.name),
                     connected=player.connected,
                     locked_out=player.locked_out,
+                    is_ai=player.is_ai,
                 )
                 for player in self.players.values()
             ],
             buzzed=buzzed_view,
             question=question_view,
             judgement=self.judgement,
+            # 正解と同じ phase でのみ出す。早い phase で載せると、投影を
+            # 見ている参加者が AI の答えを読んでそのまま答えられてしまう。
+            # 回答者にも送らない（投影と同じ情報しか見せない原則）。
+            ai_answer=(
+                self.ai_answer
+                if for_host and self.phase in ANSWER_VISIBLE_PHASES
+                else None
+            ),
             remaining_questions=self._shuffler.remaining,
             total_questions=self._shuffler.total,
         )

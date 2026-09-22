@@ -35,6 +35,9 @@ class PlayerView(BaseModel):
     connected: bool
     # お手つきで同一ラウンドの早押しを禁じられている
     locked_out: bool
+    # AI（Jev + LLM 合議）の参加者か。投影で人間と区別するために使う。
+    # 早押しの扱いは人間と同じで、buzz の排他も locked_out もそのまま乗る。
+    is_ai: bool = False
 
 
 class BuzzedView(BaseModel):
@@ -42,6 +45,34 @@ class BuzzedView(BaseModel):
 
     player_id: str
     name: str
+
+
+class AiModelAnswerView(BaseModel):
+    """合議に参加した 1 モデルの応答。"""
+
+    label: str
+    #: 回答。失敗した場合は空
+    answer: str = ""
+    #: サーバ実測の応答時間
+    elapsed_ms: int = 0
+    #: 失敗した場合の理由。成功時は None
+    error: str | None = None
+
+
+class AiAnswerView(BaseModel):
+    """AI の回答。正解と同じ phase でのみ投影へ出す。
+
+    合議が固まった時点ではなく、出題者が check を押して正解が出るのと
+    同じタイミングで見せる。投影を全員で見ながら進行するため、
+    「正解はこれです。AI の回答はこれでした」と見せる間が要る。
+    """
+
+    #: 合議で採用された回答。全モデルが失敗した場合は None
+    answer: str | None = None
+    #: どう決まったか（多数決 / 最速採用 / 回答なし）の説明
+    reason: str = ""
+    #: 各モデルの応答。採用されなかったものも含めて出す
+    models: list[AiModelAnswerView] = Field(default_factory=list)
 
 
 class QuestionView(BaseModel):
@@ -90,6 +121,51 @@ class BuzzMessage(BaseModel):
     round_id: int
     # 端末時計はズレるため判定には使わない。ログ・後日分析用。
     client_sent_at: int | None = None
+
+
+class AiJoinMessage(BaseModel):
+    """AI を参加者として登録する。出題者フロントが送る。
+
+    AI 専用の参加経路を作らず、通常の Player として登録する。buzz の排他
+    （単一イベントループを利用し await を挟まない）、locked_out、
+    display_names の重複処理、投影の参加者一覧——これらにそのまま乗る。
+    """
+
+    type: Literal["ai_join"] = "ai_join"
+    name: str = "AI"
+
+
+class AiBuzzMessage(BaseModel):
+    """AI が早押しする。出題者フロントが送る。
+
+    buzz と分けているのは、buzz が「その接続自身の player_id」で押す
+    メッセージであるため。出題者接続は player_id を持たず、かといって
+    buzz に player_id を載せられるようにすると、出題者が任意の参加者に
+    なりすまして押せてしまう。AI を押す専用の経路として分ける。
+
+    判定そのものは Room.buzz に委ね、排他も locked_out も人間と同じ扱いにする。
+    """
+
+    type: Literal["ai_buzz"] = "ai_buzz"
+    round_id: int
+    #: Jev が押すと判断した時点の文字数。記録と表示に使う
+    judged_length: int | None = None
+
+
+class AiAnswerMessage(BaseModel):
+    """AI の合議結果を送る。出題者フロントが送る。
+
+    合議そのものは出題者フロントで行う。サーバは文字位置を持たず、
+    Jev の判定も LLM の呼び出しもフロント側にあるため、結果だけを預かる。
+
+    受け取っても phase は変えない。判定は出題者が judge を押したときに行う。
+    """
+
+    type: Literal["ai_answer"] = "ai_answer"
+    round_id: int
+    answer: str | None = None
+    reason: str = ""
+    models: list[AiModelAnswerView] = Field(default_factory=list)
 
 
 class StartQuestionMessage(BaseModel):
@@ -148,6 +224,9 @@ ClientMessage = Annotated[
     JoinMessage
     | HostHelloMessage
     | BuzzMessage
+    | AiJoinMessage
+    | AiBuzzMessage
+    | AiAnswerMessage
     | StartQuestionMessage
     | ReadingEndedMessage
     | TimeUpMessage
@@ -179,6 +258,10 @@ class RoomStateMessage(BaseModel):
     # 回答者へは None にして送る
     question: QuestionView | None = None
     judgement: JudgementView | None = None
+    # AI の回答。正解と同じ phase でのみ載せる（ANSWER_VISIBLE_PHASES）。
+    # 早い phase で載せると、投影を見ている参加者が AI の答えを読んで
+    # そのまま答えられてしまう。
+    ai_answer: AiAnswerView | None = None
     # この一巡で未出題の問題数と全問数。出題者が残りを把握するために使う。
     # 正解の手がかりにはならないので回答者にも送るが、表示するのは出題者画面だけ。
     remaining_questions: int = 0

@@ -17,6 +17,7 @@ from pydantic import TypeAdapter, ValidationError
 from starlette.websockets import WebSocketState
 
 from .protocol import (
+    AiAnswerView,
     BuzzAcceptedMessage,
     BuzzRejectedMessage,
     ClientMessage,
@@ -203,6 +204,73 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                         await _deny(manager, websocket)
                         continue
                     if room.time_up(message.round_id):
+                        await manager.broadcast_state(room)
+
+                case "ai_join":
+                    # AI の登録は出題者フロントからのみ。回答者が勝手に
+                    # AI を増やせると、投影の一覧が荒れる
+                    if not _require_host(is_host):
+                        await _deny(manager, websocket)
+                        continue
+                    room.join_ai(message.name)
+                    await manager.broadcast_state(room)
+
+                case "ai_buzz":
+                    # AI の早押しは出題者フロントからのみ。Jev の判定は
+                    # 文字位置を持つ出題者フロントで行っている
+                    if not _require_host(is_host):
+                        await _deny(manager, websocket)
+                        continue
+
+                    ai = room.ai_player()
+                    if ai is None:
+                        await manager.send(
+                            websocket,
+                            ErrorMessage(
+                                code="not_joined", message="AI が参加していません。"
+                            ),
+                        )
+                        continue
+
+                    # 判定は Room.buzz に委ねる。排他も locked_out も人間と同じ
+                    result = room.buzz(ai.id, message.round_id)
+
+                    if not result.accepted or result.player is None:
+                        await manager.send(
+                            websocket,
+                            BuzzRejectedMessage(
+                                round_id=message.round_id,
+                                reason=result.reason or "wrong_phase",
+                            ),
+                        )
+                        continue
+
+                    display_name = room.display_names().get(
+                        result.player.id, result.player.name
+                    )
+                    await manager.broadcast_raw(
+                        BuzzAcceptedMessage(
+                            round_id=room.round_id,
+                            player_id=result.player.id,
+                            name=display_name,
+                        )
+                    )
+                    await manager.broadcast_state(room)
+
+                case "ai_answer":
+                    if not _require_host(is_host):
+                        await _deny(manager, websocket)
+                        continue
+                    # 受け取っても phase は変えない。判定は出題者が
+                    # judge を押したときに行う
+                    if room.set_ai_answer(
+                        message.round_id,
+                        AiAnswerView(
+                            answer=message.answer,
+                            reason=message.reason,
+                            models=message.models,
+                        ),
+                    ):
                         await manager.broadcast_state(room)
 
                 case "check":
