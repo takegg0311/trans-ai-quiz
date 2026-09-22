@@ -625,3 +625,11 @@ body {
   text-align: left;
   color: var(--wrong);
 }
+
+/*
+ * Jev の判定位置より後ろ。判定から押下までの遅れのぶん読まれた文字で、
+ * Jev は見ていない。押す根拠になった範囲と区別するために落とす。
+ */
+.question-after-judged {
+  color: var(--muted);
+}

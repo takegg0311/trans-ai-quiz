@@ -254,7 +254,10 @@ export function App() {
             preload="auto"
           />
 
-          <QuestionView text={phase === 'jingle' ? '' : shownText} />
+          <QuestionView
+            text={phase === 'jingle' ? '' : shownText}
+            judgedLength={judgedLength}
+          />
 
           {isPlaying && (
             <BuzzButton disabled={!canBuzz(phase)} onBuzz={() => handleBuzz()} />
