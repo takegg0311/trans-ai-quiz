@@ -7,6 +7,11 @@
  *
  * 送信は文字数の変化で駆動する。1 文字ごとに時間で回すと、無音区間や長音で
  * 同じ文字列を繰り返し投げることになるため。
+ *
+ * 判定は最短でも数百ミリ秒かかるため、応答が届く頃には状況が変わっている
+ * ことがある。次の問題へ進んだ、人間が先に押した、自動を切った、読み切った。
+ * **応答を受け取った時点の状況で判断し直す**必要があり、送信時の条件を
+ * クロージャに閉じ込めたまま使わない。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { decide, type Judgement } from './decision';
@@ -29,7 +34,16 @@ export type JudgeLog = {
  */
 const MAX_LOGS = 200;
 
-export function useAutoBuzz(onPress: (chars: number, reason: string) => void) {
+/**
+ * 押下を依頼する。実際に押せたかを返してもらう。
+ *
+ * 読み上げが終わっていた、人間が先に押していた、といった理由で
+ * 押せないことがある。false が返った場合は押下済みとして扱わず、
+ * 次の文字で判定を続ける。
+ */
+export type PressRequest = (chars: number, reason: string) => boolean;
+
+export function useAutoBuzz(onPress: PressRequest) {
   const [health, setHealth] = useState<HealthStatus>('checking');
   const [info, setInfo] = useState<JevHealth | null>(null);
   const [enabled, setEnabled] = useState(true);
@@ -53,18 +67,38 @@ export function useAutoBuzz(onPress: (chars: number, reason: string) => void) {
     onPressRef.current = onPress;
   }, [onPress]);
 
+  /**
+   * 応答を受け取った時点の enabled を読むための ref。
+   *
+   * feed のクロージャが捉えた enabled は送信時の値で、自動を切った後に
+   * 届いた応答ではもう正しくない。
+   */
+  const enabledRef = useRef(enabled);
+  useEffect(() => {
+    enabledRef.current = enabled;
+  }, [enabled]);
+
+  /**
+   * 疎通確認の世代。判定と同じく、古い応答で状態を上書きしないため。
+   *
+   * 「再チェック」を続けて押すと確認が複数本走る。後から返った方が
+   * 状態を決めるので、先に投げたものがタイムアウトして offline を書くと、
+   * 疎通しているのに自動早押しが止まってしまう。
+   */
+  const healthGenerationRef = useRef(0);
+
   const refresh = useCallback(async () => {
+    healthGenerationRef.current += 1;
+    const generation = healthGenerationRef.current;
+
     setHealth('checking');
     const found = await checkHealth();
 
-    if (found === null || !found.available) {
-      setHealth('offline');
-      setInfo(found);
-      return;
-    }
+    // 後から新しい確認が始まっていれば、こちらの結果は捨てる
+    if (healthGenerationRef.current !== generation) return;
 
-    setHealth('online');
     setInfo(found);
+    setHealth(found !== null && found.available ? 'online' : 'offline');
   }, []);
 
   // 起動時に 1 回だけ確認する。以降は再チェックボタンから呼ぶ
@@ -79,6 +113,17 @@ export function useAutoBuzz(onPress: (chars: number, reason: string) => void) {
     lastSentRef.current = -1;
     pressedRef.current = false;
     setLogs([]);
+  }, []);
+
+  /**
+   * これ以上この問題で判定しない。人間が先に押した場合に呼ぶ。
+   *
+   * reset と違い世代は進めない。進めると、まだ届いていない応答が
+   * 「次の問題のもの」と誤認されるわけではないが、世代を進める意味が
+   * あるのは問題が変わったときだけであり、ここで混ぜると意図が濁る。
+   */
+  const stop = useCallback(() => {
+    pressedRef.current = true;
   }, []);
 
   /**
@@ -100,10 +145,11 @@ export function useAutoBuzz(onPress: (chars: number, reason: string) => void) {
       const generation = generationRef.current;
 
       void judge(partialText).then((result) => {
-        inFlightRef.current = false;
-
-        // 次の問題へ進んだ後に届いた応答で押さない
+        // 世代が一致するときだけフラグを戻す。前問の遅れた応答で
+        // 現在の問題の送信中フラグを落とすと、1 問のあいだに判定が
+        // 何本も走り、古い断片の判定が後から届いて押しうる。
         if (generationRef.current !== generation) return;
+        inFlightRef.current = false;
 
         const judgement =
           result.status === 'ok'
@@ -115,16 +161,23 @@ export function useAutoBuzz(onPress: (chars: number, reason: string) => void) {
           return next.length > MAX_LOGS ? next.slice(-MAX_LOGS) : next;
         });
 
-        if (judgement?.press === true && !pressedRef.current) {
+        if (judgement?.press !== true) return;
+        if (pressedRef.current) return;
+        // 送信後に自動を切られていれば押さない。判定の記録だけは残す
+        if (!enabledRef.current) return;
+
+        // 押下済みにするのは、呼び出し側が実際に受理してから。
+        // 読み上げが終わっていた・人間が先に押していた場合は押せず、
+        // ここで押下済みにすると以降の判定まで止まってしまう。
+        // 理由を引数で渡すのは、setLogs と同じ処理内で呼ぶため、
+        // 呼び出し側から logs を読むと 1 つ前の判定が見えるため。
+        if (onPressRef.current(chars, judgement.reason)) {
           pressedRef.current = true;
-          // 理由を引数で渡す。setLogs と同じ処理内で呼ぶため、呼び出し側から
-          // logs を読むと 1 つ前の判定が見えてしまう。
-          onPressRef.current(chars, judgement.reason);
         }
       });
     },
     [enabled, health],
   );
 
-  return { health, info, enabled, setEnabled, logs, feed, reset, refresh };
+  return { health, info, enabled, setEnabled, logs, feed, reset, stop, refresh };
 }

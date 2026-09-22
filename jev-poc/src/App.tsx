@@ -35,16 +35,20 @@ export function App() {
   /** 直前に出題した問題。同じ問題が連続しないようにするため */
   const lastIdRef = useRef<string | undefined>(undefined);
   /** 早押し処理。自動側から呼ぶため ref で最新を持つ */
-  const buzzRef = useRef<(chars: number, reason: string) => void>(() => {});
+  const buzzRef = useRef<(chars: number, reason: string) => boolean>(() => false);
+  /** 自動判定の停止。handleBuzz から呼ぶため ref で持つ */
+  const autoStopRef = useRef<() => void>(() => {});
 
   const { phase, question, frozenLength, judgedLength, judgement, error } = state;
 
-  /** Jev が押すと判断したときに呼ばれる */
-  const handleAutoPress = useCallback((chars: number, reason: string) => {
-    buzzRef.current(chars, reason);
-  }, []);
+  /** Jev が押すと判断したときに呼ばれる。受理したかを返す */
+  const handleAutoPress = useCallback(
+    (chars: number, reason: string) => buzzRef.current(chars, reason),
+    [],
+  );
 
   const auto = useAutoBuzz(handleAutoPress);
+  autoStopRef.current = auto.stop;
 
   // 起動時に問題一覧を読み込む
   useEffect(() => {
@@ -121,7 +125,9 @@ export function App() {
     if (phase !== 'reading' || question === null) return;
     if (shownLength === 0) return;
     auto.feed([...question.text].slice(0, shownLength).join(''), shownLength);
-  }, [phase, question, shownLength, auto]);
+    // auto 全体を依存に置くと、戻り値が毎レンダー新しい参照になるため
+    // 読み上げ中は毎フレーム実行される。必要なのは feed だけ。
+  }, [phase, question, shownLength, auto.feed]);
 
   /** 出題を始める。ジングルを鳴らし切ってから問題音声へ入る */
   const startQuestion = useCallback(async () => {
@@ -153,10 +159,14 @@ export function App() {
    *
    * 手動（ボタン・スペースキー）と自動（Jev）の双方から呼ぶ。
    * 自動の場合は判定した時点の文字数を渡し、そこで止める。
+   *
+   * 受理したかを返す。自動側は判定から押下までに時間があり、その間に
+   * 読み切られた・人間が先に押した場合は押せない。押せなかったことを
+   * 伝えないと、自動側が押下済みとみなして以降の判定を止めてしまう。
    */
   const handleBuzz = useCallback(
-    (atChars?: number) => {
-      if (!canBuzz(phase) || question === null) return;
+    (atChars?: number): boolean => {
+      if (!canBuzz(phase) || question === null) return false;
 
       const audio = audioRef.current;
       const at = audio?.currentTime ?? currentTime;
@@ -172,21 +182,30 @@ export function App() {
       //
       // 押す根拠になった位置（atChars）は judgedLength として別に持ち、
       // 表示ではなく「どこで判定したか」を示すためだけに使う。
+      // 以降この問題では判定しない。手動で押した後に Jev の判定が
+      // 続くと、届いた応答が押下を試みることになる。
+      autoStopRef.current();
+
       const shown = visibleLength(question.alignment, at);
       dispatch({
         type: 'buzz',
         visibleLength: Math.max(shown, atChars ?? 0),
         judgedLength: atChars ?? null,
       });
+      return true;
     },
     [phase, question, currentTime, stopTracking],
   );
 
-  // 自動側から最新の handleBuzz を呼べるようにする
+  // 自動側から最新の handleBuzz を呼べるようにする。
+  // 理由を出すのは受理されたときだけ。押せていないのに
+  // 「Jev が押しました」と出すと、手動で押した場合や読み切った場合に
+  // 誤った表示になる。
   useEffect(() => {
     buzzRef.current = (chars: number, reason: string) => {
-      setPressedReason(reason);
-      handleBuzz(chars);
+      const accepted = handleBuzz(chars);
+      if (accepted) setPressedReason(reason);
+      return accepted;
     };
   }, [handleBuzz]);
 
@@ -194,6 +213,8 @@ export function App() {
   const handleAudioEnded = useCallback(() => {
     if (question === null) return;
     stopTracking();
+    // 読み切った後に届いた応答で押させない
+    autoStopRef.current();
     dispatch({
       type: 'audioEnded',
       visibleLength: [...question.text].length,
