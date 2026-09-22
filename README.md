@@ -4,6 +4,7 @@
 現在の実験の主対象は [`llm-poc`](docs/llm.md#llm-poc) と [`jev-poc`](docs/jev-poc.md) である。
 
 同一ネットワーク内で開催するオンライン早押し（投影 + スマホ）も持つ。
+**AI を参加者として加えられる**（Jev が早押しし、3 モデルの合議で回答する）。
 元になった 1 台完結の PoC（[`poc/`](docs/poc.md)）は凍結している。
 
 ## 構成
@@ -18,7 +19,7 @@
 | --- | --- |
 | `llm-poc/` | LLM 予測比較の PoC。[詳細](docs/llm.md) |
 | `jev-poc/` | 人間 vs AI の早押し対決 PoC。Jev が押し、LLM が答える。[詳細](docs/jev-poc.md) |
-| `web/` | オンライン版のフロントエンド。出題者用（投影）と回答者用（スマホ）。[詳細](docs/online.md) |
+| `web/` | オンライン版のフロントエンド。出題者用（投影）と回答者用（スマホ）。AI 参加者も持つ。[詳細](docs/online.md) |
 | `poc/` | **凍結**。音声読み上げによる早押しの PoC。[詳細](docs/poc.md) |
 | `server/` | バックエンド（Python / FastAPI）。[LLM 中継](docs/llm.md)・[Jev 判定](docs/jev-poc.md)・[オンライン版の判定](docs/online.md) |
 | `docs/` | 詳細ドキュメント |
@@ -100,6 +101,13 @@ cd server && uv sync && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 起動すると、出題者用 URL（トークン付き）と参加者用 URL が表示される。
+
+> [!IMPORTANT]
+> `--host 0.0.0.0` を省くと `127.0.0.1` に bind され、**参加者のスマホから繋がらない**。
+> 繋がらないときの切り分けは [docs/online.md](docs/online.md#参加者のスマホから繋がらないとき)。
+
+AI を参加させる場合は、`server/.env` に `TYPESAFE_API_KEY` と各社の API キーを設定する。
+出題者画面の「AI 参加者」で参加を切り替える。
 `questions.csv` の検証に失敗した場合、サーバは起動するが `/host` `/player` `/ws` は 503 になる。
 
 `--workers` は増やさないこと。ルームの状態はプロセス内のメモリに持つ。
