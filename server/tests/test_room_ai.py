@@ -132,6 +132,48 @@ class TestSetAiAnswer:
 
         assert room.phase == "buzzed"
 
+    def test_同じラウンドで上書きできる(self, room: Room) -> None:
+        """早期確定の後、残りのモデルの応答が届いたら送り直される。
+
+        合議の結果は変えず、モデルごとの回答だけを最新にする。
+        1 回だけしか受け取らないと、3 モデル目が「応答なし」のまま残る。
+        """
+        ai = room.join_ai("AI")
+        room.start_question()
+        room.buzz(ai.id, room.round_id)
+
+        # 早期確定の時点（3 モデル目はまだ届いていない）
+        first = AiAnswerView(
+            answer="富士山",
+            reason="2/2 が同じ回答",
+            models=[
+                AiModelAnswerView(label="Claude", answer="富士山", elapsed_ms=1200),
+                AiModelAnswerView(label="Gemini", answer="富士山", elapsed_ms=900),
+                AiModelAnswerView(label="Grok", answer="", elapsed_ms=0, error="応答なし"),
+            ],
+        )
+        assert room.set_ai_answer(room.round_id, first) is True
+
+        # 3 モデル目が届いた後
+        second = AiAnswerView(
+            answer="富士山",
+            reason="2/2 が同じ回答",
+            models=[
+                AiModelAnswerView(label="Claude", answer="富士山", elapsed_ms=1200),
+                AiModelAnswerView(label="Gemini", answer="富士山", elapsed_ms=900),
+                AiModelAnswerView(label="Grok", answer="北岳", elapsed_ms=5500),
+            ],
+        )
+        assert room.set_ai_answer(room.round_id, second) is True
+
+        assert room.ai_answer is not None
+        # 合議の結果は変わらない
+        assert room.ai_answer.answer == "富士山"
+        assert room.ai_answer.reason == "2/2 が同じ回答"
+        # 3 モデル目の回答が反映されている
+        assert room.ai_answer.models[2].answer == "北岳"
+        assert room.ai_answer.models[2].error is None
+
     def test_人間が押したラウンドでは受け取らない(self, room: Room) -> None:
         """遅れて届いた合議結果で、投影に AI の回答が出てしまうのを防ぐ。"""
         room.join_ai("AI")

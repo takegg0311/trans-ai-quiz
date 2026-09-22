@@ -18,6 +18,7 @@ import {
   canSettleEarly,
   decideConsensus,
   describeConsensus,
+  type Consensus,
   type ModelAnswer,
 } from '../lib/consensus';
 import { decide } from '../lib/decision';
@@ -146,7 +147,8 @@ export function useAiPlayer({ send, roundId, questionId }: Props) {
   const runAnswer = useCallback(
     (partialText: string, round: number, questionId: string) => {
       const answers: (ModelAnswer | null)[] = OPPONENTS.map(() => null);
-      let settled = false;
+      /** 確定した合議。以降に届いた応答では書き換えない */
+      let settled: Consensus | null = null;
 
       OPPONENTS.forEach((opponent, index) => {
         void predict(opponent.vendor, opponent.model, partialText, false).then(
@@ -160,20 +162,23 @@ export function useAiPlayer({ send, roundId, questionId }: Props) {
               model: opponent.model,
               result,
             };
-            if (settled) return;
 
-            const arrived = answers.filter(
-              (answer): answer is ModelAnswer => answer !== null,
-            );
-            if (!canSettleEarly(arrived, OPPONENTS.length)) return;
+            if (settled === null) {
+              const arrived = answers.filter(
+                (answer): answer is ModelAnswer => answer !== null,
+              );
+              if (!canSettleEarly(arrived, OPPONENTS.length)) return;
+              settled = decideConsensus(arrived);
+            }
 
-            settled = true;
-            const consensus = decideConsensus(arrived);
+            // 確定後に届いた応答でも送り直す。**合議の結果は変えず**、
+            // モデルごとの回答だけを最新にするため。早期確定で打ち切ると
+            // 3 モデル目が投影に「応答なし」のまま残ってしまう。
             sendRef.current({
               type: 'ai_answer',
               round_id: round,
-              answer: consensus.answer,
-              reason: describeConsensus(consensus),
+              answer: settled.answer,
+              reason: describeConsensus(settled),
               models: toModelViews(answers),
             });
           },

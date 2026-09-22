@@ -32,6 +32,11 @@ const PRESS: jev.JudgeResult = {
 /** 押さないと判断される観測値 */
 const HOLD: jev.JudgeResult = { ...PRESS, buzz: 0.1 };
 
+/** 予測の成功応答を作る */
+function answer(text: string, elapsedMs: number): llm.PredictResult {
+  return { status: 'ok', continuation: null, answer: text, elapsedMs, raw: '' };
+}
+
 /** 危険区間を抜けた長さの文字列 */
 const TEXT = 'あ'.repeat(40);
 
@@ -136,6 +141,82 @@ describe('前問の文章で押さない', () => {
     });
 
     expect(predict).not.toHaveBeenCalled();
+  });
+});
+
+describe('遅れて届いたモデルの回答', () => {
+  it('確定後に届いた応答でも送り直す', async () => {
+    // 早期確定（2 モデル一致）で打ち切ると、3 モデル目が投影に
+    // 「応答なし」のまま残ってしまう
+    vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    const resolvers: ((value: llm.PredictResult) => void)[] = [];
+    vi.spyOn(llm, 'predict').mockImplementation(
+      () =>
+        new Promise<llm.PredictResult>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    const { hook, send } = await mount('q1');
+
+    await act(async () => {
+      hook.result.current.feed(TEXT, 40, 'q1');
+    });
+    await waitFor(() => expect(resolvers).toHaveLength(OPPONENTS.length));
+
+    // 2 モデルが一致して確定する
+    await act(async () => {
+      resolvers[0]?.(answer('富士山', 1000));
+      resolvers[1]?.(answer('富士山', 1200));
+    });
+
+    const settled = send.mock.calls
+      .map((call) => call[0])
+      .filter((message) => message.type === 'ai_answer');
+    expect(settled).toHaveLength(1);
+
+    // 3 モデル目が遅れて届く
+    await act(async () => {
+      resolvers[2]?.(answer('北岳', 5500));
+    });
+
+    const all = send.mock.calls
+      .map((call) => call[0])
+      .filter((message) => message.type === 'ai_answer');
+    expect(all).toHaveLength(2);
+
+    const last = all[1];
+    // 合議の結果は変わらない
+    expect(last.answer).toBe('富士山');
+    // 3 モデル目の回答が入っている
+    expect(last.models[2]?.answer).toBe('北岳');
+    expect(last.models[2]?.error).toBeUndefined();
+  });
+
+  it('確定前の応答では送らない', async () => {
+    vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    const resolvers: ((value: llm.PredictResult) => void)[] = [];
+    vi.spyOn(llm, 'predict').mockImplementation(
+      () =>
+        new Promise<llm.PredictResult>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    const { hook, send } = await mount('q1');
+
+    await act(async () => {
+      hook.result.current.feed(TEXT, 40, 'q1');
+    });
+    await waitFor(() => expect(resolvers).toHaveLength(OPPONENTS.length));
+
+    // 1 モデルだけでは多数決が決まらない
+    await act(async () => {
+      resolvers[0]?.(answer('富士山', 1000));
+    });
+
+    const sent = send.mock.calls
+      .map((call) => call[0])
+      .filter((message) => message.type === 'ai_answer');
+    expect(sent).toHaveLength(0);
   });
 });
 
