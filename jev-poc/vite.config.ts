@@ -1,8 +1,15 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  // 押下規則（decision.ts）と自動早押しの非同期制御（useAutoBuzz.ts）を
+  // 検証する。規則はサーバ側にも同じものがあり、pytest だけでは
+  // 片方を変えたときに気づけない。
+  test: {
+    environment: 'jsdom',
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+  },
   server: {
     host: true,
     // Jev 判定だけはバックエンドを経由する。API キーをフロントのバンドルへ
