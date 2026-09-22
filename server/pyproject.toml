@@ -11,12 +11,12 @@ dependencies = [
     "openai>=1.60",
     "anthropic>=0.69",
     "google-genai>=1.0",
+    "httpx>=0.28",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.3",
-    "httpx>=0.28",
     "pytest-timeout>=2.4.0",
 ]
 
