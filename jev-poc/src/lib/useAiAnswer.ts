@@ -8,7 +8,12 @@
  * 人間の回答とは独立に到着するため、同じ状態機械に混ぜると遷移が読めなくなる。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { decideConsensus, type Consensus, type ModelAnswer } from './consensus';
+import {
+  canSettleEarly,
+  decideConsensus,
+  type Consensus,
+  type ModelAnswer,
+} from './consensus';
 import { checkHealth, predict, type PredictResult } from './llm';
 
 /** server との疎通状態 */
@@ -37,7 +42,7 @@ export type SlotState =
 
 export type AiAnswerState = {
   slots: SlotState[];
-  /** 全モデルの応答がそろった時点の合議結果。途中は null */
+  /** 合議が確定した時点の結果。確定前は null。遅れて届いた応答では変えない */
   consensus: Consensus | null;
 };
 
@@ -96,15 +101,16 @@ export function useAiAnswer() {
   }, []);
 
   /**
-   * 3 モデルへ並列に送信し、そろった時点で合議する。
+   * 3 モデルへ並列に送信し、多数決が決まった時点で合議する。
    *
    * partialText は、Jev が押した時点で**実際に読み上げられていた**問題文。
    * Jev が判断した位置ではない。判定から押下までの間も読み上げは進んでおり、
    * 画面にはその分まで表示されている。人間が同じ位置で押した場合にも同じ
    * 範囲が見えているため、AI にだけ狭い範囲を渡すと条件が不利になる。
    *
-   * 完了時に onSettled で合議結果を返す。呼び出し側はこれを受けて
-   * 正誤判定と遷移を行う。
+   * 合議が確定した時点で onSettled を 1 回だけ呼ぶ。全応答がそろう前でも、
+   * 多数決が覆らなくなっていれば確定する（2 モデルが一致した時点など）。
+   * 遅れて届いた応答は、表示だけ更新して勝敗には影響させない。
    */
   const run = useCallback(
     (partialText: string, onSettled: (consensus: Consensus) => void) => {
@@ -117,7 +123,8 @@ export function useAiAnswer() {
       });
 
       const answers: (ModelAnswer | null)[] = OPPONENTS.map(() => null);
-      let remaining = OPPONENTS.length;
+      /** 既に確定して onSettled を呼んだか。1 回だけ呼ぶ */
+      let settled = false;
 
       OPPONENTS.forEach((opponent, index) => {
         void predict(opponent.vendor, opponent.model, partialText, false).then((result) => {
@@ -125,8 +132,9 @@ export function useAiAnswer() {
           if (generationRef.current !== generation) return;
 
           answers[index] = { vendor: opponent.vendor, model: opponent.model, result };
-          remaining -= 1;
 
+          // 応答は届き次第、表示へ反映する。確定した後に届いたものも同じ。
+          // 「どのモデルが何を答えたか」は勝敗と別に残す価値がある。
           setState((current) => ({
             ...current,
             slots: current.slots.map((slot, i) =>
@@ -134,14 +142,18 @@ export function useAiAnswer() {
             ),
           }));
 
-          // 全モデルがそろってから合議する。先に多数決が確定していても
-          // 待つのは、画面に 3 モデルの応答を並べて見せるため。
-          // 勝敗より「どのモデルが何を答えたか」を残すことを優先する。
-          if (remaining > 0) return;
+          if (settled) return;
 
-          const consensus = decideConsensus(
-            answers.filter((answer): answer is ModelAnswer => answer !== null),
+          const arrived = answers.filter(
+            (answer): answer is ModelAnswer => answer !== null,
           );
+
+          // 多数決が覆らなくなった時点で打ち切る。早押しでは回答までの
+          // 速さも勝敗に関わるため、結果が決まっている応答を待たない。
+          if (!canSettleEarly(arrived, OPPONENTS.length)) return;
+
+          settled = true;
+          const consensus = decideConsensus(arrived);
           setState((current) => ({ ...current, consensus }));
           onSettled(consensus);
         });

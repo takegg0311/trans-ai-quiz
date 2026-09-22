@@ -11,6 +11,10 @@
  *   3. 一部が失敗 → 成功したモデルだけで 1〜2 を適用
  *   4. 全モデルが失敗 → 回答なし（AI の誤答として扱う）
  *
+ * **多数決が覆らなくなった時点で打ち切る**（canSettleEarly）。早押しでは
+ * 回答までの速さも勝敗に関わるため、結果が決まっている応答を待たない。
+ * 残りの応答は届き次第、画面の表示だけ更新する。
+ *
  * 「最初に回答を出した」はサーバ実測の elapsed_ms で測る。フロントへの到着順は
  * ネットワークのゆらぎで変わり、モデルの速さを表さないため採らない。
  */
@@ -116,6 +120,45 @@ export function decideConsensus(entries: ModelAnswer[]): Consensus {
 
 function fastestElapsed(items: { entry: ModelAnswer }[]): number {
   return Math.min(...items.map((item) => elapsedOf(item.entry)));
+}
+
+/**
+ * 残りの応答を待たずに合議を確定してよいか。
+ *
+ * 届いている回答だけで多数決が決まり、**まだ届いていないモデルが何を答えても
+ * 結果が変わらない**場合に true を返す。
+ *
+ * 3 モデルなら「2 つが一致した時点」がこれにあたる。残る 1 つが何を答えても、
+ * 一致している 2 票を超えることはない。
+ *
+ * 安全側に倒す設計であり、判断に迷う場合は false を返して全応答を待つ。
+ * 早く確定することより、確定した答えが最終結果と一致することを優先する。
+ *
+ * @param settled 既に届いている応答
+ * @param total   送信したモデル数（まだ届いていないものを含む）
+ */
+export function canSettleEarly(settled: ModelAnswer[], total: number): boolean {
+  const pending = total - settled.length;
+  if (pending <= 0) return true;
+
+  const counts = new Map<string, number>();
+  for (const entry of settled) {
+    const answer = usableAnswer(entry);
+    if (answer === null) continue;
+    const key = normalizeAnswer(answer);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  const votes = [...counts.values()].sort((a, b) => b - a);
+  const top = votes[0] ?? 0;
+  const second = votes[1] ?? 0;
+
+  // 首位が 2 票未満なら、そもそも多数決が成立していない
+  if (top < 2) return false;
+
+  // 残り全部が 2 位（または新しい答え）へ入っても首位に届かないなら確定。
+  // 同数で並ぶと最速採用の比較が要り、その相手がまだ届いていないため待つ。
+  return top > second + pending;
 }
 
 /** 合議の経緯を 1 行で説明する。画面に出す */

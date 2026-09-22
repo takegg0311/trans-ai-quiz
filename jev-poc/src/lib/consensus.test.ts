@@ -6,7 +6,7 @@
  * ここで期待値として残す。
  */
 import { describe, expect, it } from 'vitest';
-import { decideConsensus, type ModelAnswer } from './consensus';
+import { canSettleEarly, decideConsensus, type ModelAnswer } from './consensus';
 import type { PredictResult } from './llm';
 
 function ok(answer: string, elapsedMs: number): PredictResult {
@@ -186,5 +186,59 @@ describe('全滅', () => {
 
     expect(result.answer).toBeNull();
     expect(result.reason).toBe('none');
+  });
+});
+
+describe('早期確定', () => {
+  it('2 モデルが一致したら 3 モデル目を待たない', () => {
+    // 残る 1 モデルが何を答えても、一致している 2 票は超えられない
+    const arrived = [entry('a', ok('富士山', 1000)), entry('b', ok('富士山', 1200))];
+
+    expect(canSettleEarly(arrived, 3)).toBe(true);
+    expect(decideConsensus(arrived).answer).toBe('富士山');
+  });
+
+  it('括弧違いでも一致として早期確定する', () => {
+    const arrived = [entry('a', ok('檸檬', 1699)), entry('b', ok('『檸檬』', 2736))];
+
+    expect(canSettleEarly(arrived, 3)).toBe(true);
+  });
+
+  it('2 モデルが異なれば待つ', () => {
+    // 3 モデル目がどちらかに付けば多数決、違う答えなら最速採用。
+    // どちらになるか分からないため確定できない
+    const arrived = [entry('a', ok('富士山', 1000)), entry('b', ok('エベレスト', 1200))];
+
+    expect(canSettleEarly(arrived, 3)).toBe(false);
+  });
+
+  it('1 モデルだけでは待つ', () => {
+    expect(canSettleEarly([entry('a', ok('富士山', 500))], 3)).toBe(false);
+  });
+
+  it('失敗した応答は票に数えない', () => {
+    // 1 体成功・1 体失敗では多数決が成立しておらず、残り 1 体で覆りうる
+    const arrived = [entry('a', ok('富士山', 1000)), entry('b', error(60000))];
+
+    expect(canSettleEarly(arrived, 3)).toBe(false);
+  });
+
+  it('全応答がそろえば確定する', () => {
+    const arrived = [
+      entry('a', ok('富士山', 1000)),
+      entry('b', ok('エベレスト', 500)),
+      entry('c', ok('北岳', 1500)),
+    ];
+
+    expect(canSettleEarly(arrived, 3)).toBe(true);
+  });
+
+  it('早期確定した答えは、全応答後の結果と一致する', () => {
+    // 早く確定することより、確定した答えが最終結果と同じであることを優先する
+    const first2 = [entry('a', ok('富士山', 1000)), entry('b', ok('富士山', 1200))];
+    const all3 = [...first2, entry('c', ok('エベレスト', 800))];
+
+    expect(canSettleEarly(first2, 3)).toBe(true);
+    expect(decideConsensus(first2).answer).toBe(decideConsensus(all3).answer);
   });
 });
