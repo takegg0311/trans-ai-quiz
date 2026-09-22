@@ -17,7 +17,7 @@
 | ディレクトリ | 内容 |
 | --- | --- |
 | `llm-poc/` | LLM 予測比較の PoC。[詳細](docs/llm.md) |
-| `jev-poc/` | Jev で早押しボタンを自動化する PoC。[詳細](docs/jev-poc.md) |
+| `jev-poc/` | 人間 vs AI の早押し対決 PoC。Jev が押し、LLM が答える。[詳細](docs/jev-poc.md) |
 | `web/` | オンライン版のフロントエンド。出題者用（投影）と回答者用（スマホ）。[詳細](docs/online.md) |
 | `poc/` | **凍結**。音声読み上げによる早押しの PoC。[詳細](docs/poc.md) |
 | `server/` | バックエンド（Python / FastAPI）。[LLM 中継](docs/llm.md)・[Jev 判定](docs/jev-poc.md)・[オンライン版の判定](docs/online.md) |
@@ -31,7 +31,7 @@ trans-ai-quiz/
 ├── server/        バックエンド（オンライン版の判定・LLM 中継・Jev 判定）
 ├── web/           オンライン版フロントエンド
 ├── llm-poc/       LLM 予測比較 PoC
-├── jev-poc/       Jev 自動早押し PoC
+├── jev-poc/       人間 vs AI 早押し対決 PoC
 └── poc/           音声早押し PoC（凍結）
 ```
 
@@ -79,7 +79,11 @@ npm run dev -w llm-poc
 ## jev-poc
 
 読み上げ中の問題文を Jev へ随時投げ、確定ポイントと判断したら自動で早押しする。
+**押した側が答える。** Jev が押せば 3 モデルの合議で AI が回答し、人間が押せば人間が回答する。
+AI が外したら読み上げが再開され、人間へ解答権が移る。
+
 `server` に `TYPESAFE_API_KEY` を設定して起動しておく（未設定でも手動の早押しは動く）。
+AI に回答させる場合は各社の API キーも設定する。
 
 ```bash
 npm run dev -w jev-poc
