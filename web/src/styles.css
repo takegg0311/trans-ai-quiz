@@ -499,6 +499,70 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.ai-panel-judgement-head {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0 0 0.4rem;
+}
+
+.ai-panel-judgement-reason {
+  flex: 1;
+  text-align: right;
+}
+
+/* 判定の観測値。数字だけだと閾値までの距離が読み取りにくいのでバーで出す */
+.ai-gauge {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+}
+
+.ai-gauge-label {
+  width: 3.8rem;
+  flex-shrink: 0;
+  font-size: 0.72rem;
+}
+
+.ai-gauge-track {
+  position: relative;
+  flex: 1;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.ai-gauge-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--muted);
+  transition: width 0.15s ease-out;
+}
+
+/* 閾値に届いた指標。押下条件を満たしていることを色で示す */
+.ai-gauge-fill.is-reached {
+  background: var(--accent);
+}
+
+/* 閾値の位置。overflow: hidden の内側なので fill より前面に出す */
+.ai-gauge-threshold {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--fg);
+  opacity: 0.65;
+}
+
+.ai-gauge-value {
+  width: 2.2rem;
+  flex-shrink: 0;
+  text-align: right;
+  font-size: 0.72rem;
+}
+
 /* 投影に出す AI の回答。正解と同じ phase でのみ表示される */
 .ai-answer {
   margin-top: 1.5rem;

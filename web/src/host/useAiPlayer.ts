@@ -36,6 +36,23 @@ export const OPPONENTS: { vendor: string; model: string; label: string }[] = [
   { vendor: 'xai', model: 'grok-4.3', label: 'Grok' },
 ];
 
+/**
+ * 直近の判定。数値をそのまま持つ。
+ *
+ * 文字列に畳んでしまうと画面側でバー表示に使えない。どう見せるかは
+ * 画面の都合なので、ここでは観測値と理由を分けて渡す。
+ */
+export type AiJudgement = {
+  /** 判定時点の文字数 */
+  chars: number;
+  buzz: number | null;
+  parallel: number | null;
+  asking: number | null;
+  /** 押した／押さなかった理由 */
+  reason: string;
+  press: boolean;
+};
+
 export type AiReadiness = {
   /** Jev が使えるか。これが false なら自動早押ししない */
   jev: boolean;
@@ -58,8 +75,8 @@ type Props = {
 export function useAiPlayer({ send, roundId, questionId }: Props) {
   const [enabled, setEnabled] = useState(false);
   const [readiness, setReadiness] = useState<AiReadiness>({ jev: false, llm: false });
-  /** 判定の履歴。押した理由を出題者が確認するために持つ */
-  const [lastJudgement, setLastJudgement] = useState<string | null>(null);
+  /** 直近の判定。押した理由を出題者が確認するために持つ */
+  const [lastJudgement, setLastJudgement] = useState<AiJudgement | null>(null);
 
   const sendRef = useRef(send);
   sendRef.current = send;
@@ -212,7 +229,14 @@ export function useAiPlayer({ send, roundId, questionId }: Props) {
         if (result.status !== 'ok') return;
 
         const judgement = decide(partialText, result.buzz, result.asking);
-        setLastJudgement(`${chars} 字: ${judgement.reason}`);
+        setLastJudgement({
+          chars,
+          buzz: result.buzz,
+          parallel: result.parallel,
+          asking: result.asking,
+          reason: judgement.reason,
+          press: judgement.press,
+        });
 
         if (!judgement.press || pressedRef.current) return;
         // 送信後に AI を外されていれば押さない
