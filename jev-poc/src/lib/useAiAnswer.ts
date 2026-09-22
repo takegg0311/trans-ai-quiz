@@ -111,11 +111,23 @@ export function useAiAnswer() {
    * 合議が確定した時点で onSettled を 1 回だけ呼ぶ。全応答がそろう前でも、
    * 多数決が覆らなくなっていれば確定する（2 モデルが一致した時点など）。
    * 遅れて届いた応答は、表示だけ更新して勝敗には影響させない。
+   *
+   * **疎通していない場合は送信せず、その場で「回答なし」を返す。**
+   * キーが未設定でも /predict は呼べてしまい、3 本が 60 秒のタイムアウトまで
+   * 走る。その間は aiAnswering のままで人間も押せず、出題が 1 分止まる。
+   * 全モデル失敗と同じ扱いにして、すぐ人間へ解答権を渡す。
    */
   const run = useCallback(
     (partialText: string, onSettled: (consensus: Consensus) => void) => {
       generationRef.current += 1;
       const generation = generationRef.current;
+
+      if (health !== 'online') {
+        const consensus = decideConsensus([]);
+        setState({ slots: OPPONENTS.map(() => ({ state: 'idle' as const })), consensus });
+        onSettled(consensus);
+        return;
+      }
 
       setState({
         slots: OPPONENTS.map(() => ({ state: 'pending' as const })),
@@ -159,7 +171,7 @@ export function useAiAnswer() {
         });
       });
     },
-    [],
+    [health],
   );
 
   return { health, state, run, reset, refresh };
