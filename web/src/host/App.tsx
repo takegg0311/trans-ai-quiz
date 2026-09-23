@@ -8,6 +8,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { alignmentDuration, visibleLength } from '../lib/align';
 import { playJingle } from '../lib/sound';
 import { useConnection } from '../lib/useConnection';
+import { AiAnswerView } from './AiAnswerView';
+import { AiPanel } from './AiPanel';
+import { useAiPlayer } from './useAiPlayer';
 import type { ClientMessage, RoomStateMessage, ServerMessage } from '../protocol';
 import { Controls } from './Controls';
 import { JoinPanel } from './JoinPanel';
@@ -109,6 +112,9 @@ export function App() {
     setFrozenLength(visibleLength(loaded.alignment, currentPosition()));
   }, [stopTracking, pauseSilentClock, currentPosition]);
 
+  /** AI の判定停止。handleMessage から呼ぶため ref で持つ */
+  const aiStopRef = useRef<() => void>(() => {});
+
   const handleOpen = useCallback((send: (message: ClientMessage) => void) => {
     send({ type: 'host_hello', host_token: hostToken.current });
   }, []);
@@ -125,6 +131,8 @@ export function App() {
           // 押したフィードバックなので、鳴り終わりは待たない
           freeze();
           void playJingle('buzz');
+          // 人間が先に押した場合も含め、以降このラウンドでは判定しない
+          aiStopRef.current();
           break;
 
         case 'error':
@@ -139,6 +147,25 @@ export function App() {
 
   const phase = state?.phase ?? 'idle';
   const roundId = state?.round_id ?? 0;
+
+  const ai = useAiPlayer({ send, roundId, questionId: state?.question?.id ?? null });
+
+  /** 回答権を得ているのが AI か。AI の回答枠を出すかの判断に使う */
+  const buzzedIsAi =
+    state?.buzzed != null &&
+    state.players.some((player) => player.id === state.buzzed?.player_id && player.is_ai);
+  aiStopRef.current = ai.stop;
+
+  /** AI の参加を切り替える。参加させる側だけサーバへ登録を送る */
+  const handleToggleAi = useCallback(
+    (next: boolean) => {
+      ai.setEnabled(next);
+      // 参加を外しても Player は消さない。投影の一覧から名前が消えると、
+      // 途中まで居た AI の戦績が追えなくなる（人間の切断と同じ扱い）
+      if (next) send({ type: 'ai_join', name: 'AI' });
+    },
+    [ai, send],
+  );
 
   // 新しい問題が読み込まれたら、ジングルを鳴らしてから読み上げを始める
   const questionId = question?.id ?? null;
@@ -313,6 +340,78 @@ export function App() {
       : (frozenLength ??
         (hasAlignment ? visibleLength(question.alignment, currentTime) : [...question.text].length));
 
+  // ラウンドが変わったら AI の判定状態を捨てる
+  useEffect(() => {
+    ai.reset();
+    // reset は安定した参照なので、ラウンドの変化だけで走らせる
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roundId]);
+
+  // 読み上げ中、表示文字数が変わるたびに Jev へ判定を投げる。
+  // 時間ではなく文字数の変化で駆動するのは、無音区間や長音で同じ文字列を
+  // 繰り返し投げないため。送信の間引きは useAiPlayer が行う。
+  useEffect(() => {
+    if (phase !== 'reading' || question === null) return;
+
+    // **今の問題が今のラウンドのものかを確かめる。**
+    // 新しいラウンドが始まった直後は、phase と roundId だけが先に更新され、
+    // question は前問のまま残る（useQuestion が .lab を非同期で取りに行く）。
+    if (state?.question?.id !== question.id) return;
+
+    // **AI に渡す文字数は shownLength から取らない。**
+    // shownLength は投影の都合を含んでいる:
+    //   - frozenLength … 前ラウンドの停止位置が、リセットされるまで残る
+    //   - hasAlignment が false … .lab を読めないときは「全文」を出す
+    // どちらも「読み上げがそこまで進んだ」という意味ではないため、そのまま
+    // 渡すと開始直後に全文が飛び、AI がカンニングしたように即座に押す。
+    //
+    // 判定には再生位置から都度求めた値だけを使う。アライメントが無い間は
+    // 進捗が分からないので、判定そのものを見送る。
+    if (!hasAlignment) return;
+
+    // **実際に読み上げが始まっているかを、再生の実体で確かめる。**
+    // currentTime も frozenLength も「前ラウンドの値が残っている」窓がある
+    // （どちらも問題の読み込み完了を待つ effect の中でリセットされるため）。
+    // <audio> が再生中か、音声なし問題の時計が動いているかだけが、
+    // 「今この問題の読み上げが進んでいる」ことの確かな根拠になる。
+    const audio = audioRef.current;
+    const silent = question.audioUrl === null;
+    const playing = silent
+      ? silentClockRef.current.startedAt !== null
+      : audio !== null && !audio.paused;
+    if (!playing) return;
+
+    // 表示用の値ではなく、再生位置から都度求めた値を使う
+    const heard = visibleLength(question.alignment, currentPosition());
+    if (heard === 0) return;
+
+    ai.feed([...question.text].slice(0, heard).join(''), heard, question.id);
+    // ai 全体を依存に置くと毎フレーム実行される。必要なのは feed だけ
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, question, currentTime, hasAlignment, currentPosition, state?.question?.id, ai.feed]);
+
+  // 読み切った後も早押しは締め切られない（締め切るのは出題者の time_up）。
+  // 人間はこの間も押せるので、AI も押せないと対決として不公平になる。
+  //
+  // ただし即座に押させない。読み切りの直後は人間が考えている時間であり、
+  // そこへ AI が割り込むと考える間が無くなる。待ち時間は
+  // AI_READING_ENDED_DELAY_MS で変えられる（0 なら読み切りと同時）。
+  useEffect(() => {
+    if (phase !== 'readingEnded' || question === null) return;
+    if (state?.question?.id !== question.id) return;
+
+    const timer = window.setTimeout(() => {
+      // 読み切っているので全文を渡す。まだ読まれていない部分は無く、
+      // 人間が聞いた範囲と同じであるため、カンニングにはあたらない
+      const text = question.text;
+      // force。読み上げ中に全文まで送っていると間引かれてしまう
+      ai.feed(text, [...text].length, question.id, true);
+    }, ai.readiness.readingEndedDelayMs);
+
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, question, state?.question?.id, ai.feed, ai.readiness.readingEndedDelayMs]);
+
   if (hostToken.current === '') {
     return (
       <main className="host">
@@ -356,11 +455,30 @@ export function App() {
           answers={state?.question?.answers ?? null}
           judgement={state?.judgement ?? null}
         />
+
+        {/* 正解と同じ phase でのみサーバが載せてくる */}
+        {/* AI が押していれば、合議が固まる前から枠を出す。
+            正解より早く出してよい理由は room.py の AI_ANSWER_VISIBLE_PHASES を参照 */}
+        {buzzedIsAi && (
+          <AiAnswerView
+            answer={state?.ai_answer ?? null}
+            pending={state?.ai_answer == null}
+          />
+        )}
       </section>
 
       <aside className="host-side">
         <JoinPanel />
         <PlayerList players={state?.players ?? []} buzzedId={state?.buzzed?.player_id ?? null} />
+
+        <AiPanel
+          enabled={ai.enabled}
+          readiness={ai.readiness}
+          lastJudgement={ai.lastJudgement}
+          disabled={phase !== 'idle' && phase !== 'result'}
+          onToggle={handleToggleAi}
+          onRefresh={() => void ai.refresh()}
+        />
       </aside>
 
       <footer className="host-controls">

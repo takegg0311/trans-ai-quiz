@@ -399,3 +399,152 @@ class TestInvalidMessage:
             error = receive_until(websocket, "error")
 
             assert error["code"] == "invalid_message"
+
+
+class TestAiPlayer:
+    """AI 参加者の登録と回答の受け渡し。権限チェックが主眼。"""
+
+    def test_出題者は_ai_を登録できる(self, client: TestClient) -> None:
+        with client.websocket_connect("/ws") as host:
+            host.send_json({"type": "host_hello", "host_token": HOST_TOKEN})
+            receive_until(host, "welcome")
+            host.send_json({"type": "ai_join", "name": "AI"})
+
+            state = receive_until(
+                host, "room_state", where=lambda m: len(m["players"]) == 1
+            )
+
+            assert state["players"][0]["is_ai"] is True
+
+    def test_回答者は_ai_を登録できない(self, client: TestClient) -> None:
+        # 回答者が勝手に AI を増やせると投影の一覧が荒れる
+        with client.websocket_connect("/ws") as player:
+            player.send_json({"type": "join", "name": "たけ"})
+            receive_until(player, "welcome")
+            player.send_json({"type": "ai_join", "name": "AI"})
+
+            error = receive_until(player, "error")
+
+            assert error["code"] == "forbidden"
+
+    def test_回答者は_ai_の回答を送れない(self, client: TestClient) -> None:
+        with client.websocket_connect("/ws") as player:
+            player.send_json({"type": "join", "name": "たけ"})
+            receive_until(player, "welcome")
+            player.send_json(
+                {"type": "ai_answer", "round_id": 1, "answer": "富士山", "reason": ""}
+            )
+
+            error = receive_until(player, "error")
+
+            assert error["code"] == "forbidden"
+
+    def test_ai_の回答は押した直後から出て正解は_check_まで出ない(
+        self, client: TestClient
+    ) -> None:
+        """AI の回答は正解より早く出す。**正解の露出は変えない。**
+
+        AI の回答は「AI が何と答えたか」であって正解ではなく、AI が押した
+        時点でそのラウンドの解答権は確定している（ダブルチャンスは無い）。
+        投影を見ている参加者が読んでも得をしないため、押した直後から出す。
+
+        一方で正解を早く出すと、それを読んで答えられてしまう。
+        2 つが別の制御になっていることをここで確かめる。
+        """
+        with client.websocket_connect("/ws") as host:
+            host.send_json({"type": "host_hello", "host_token": HOST_TOKEN})
+            welcome = receive_until(host, "welcome")
+            assert welcome["role"] == "host"
+
+            host.send_json({"type": "ai_join", "name": "AI"})
+            state = receive_until(
+                host, "room_state", where=lambda m: len(m["players"]) == 1
+            )
+            ai_id = state["players"][0]["id"]
+
+            host.send_json({"type": "start_question"})
+            state = receive_until(host, "room_state", where=lambda m: m["phase"] == "reading")
+            round_id = state["round_id"]
+
+            host.send_json({"type": "ai_buzz", "round_id": round_id, "judged_length": 12})
+            accepted = receive_until(host, "buzz_accepted")
+            assert accepted["player_id"] == ai_id
+
+            host.send_json(
+                {
+                    "type": "ai_answer",
+                    "round_id": round_id,
+                    "answer": "富士山",
+                    "reason": "2/3 が同じ回答",
+                    "models": [],
+                }
+            )
+            # ai_answer が載った room_state を待つ。phase だけで待つと、
+            # 合議が届く前のブロードキャストを拾ってしまう
+            state = receive_until(
+                host,
+                "room_state",
+                where=lambda m: m["phase"] == "buzzed" and m["ai_answer"] is not None,
+            )
+
+            # AI の回答は buzzed から出る
+            assert state["ai_answer"]["answer"] == "富士山"
+            # 正解はまだ出ない
+            assert state["question"]["answers"] is None
+
+            host.send_json({"type": "check", "round_id": round_id})
+            state = receive_until(host, "room_state", where=lambda m: m["phase"] == "check")
+
+            # check で正解が出る。AI の回答は出たまま
+            # （どの問題が抽選されるかはシャッフル次第なので、内容は問わない）
+            assert state["question"]["answers"] is not None
+            assert state["ai_answer"]["answer"] == "富士山"
+
+    def test_ai_が参加していなければ_ai_buzz_は弾く(self, client: TestClient) -> None:
+        with client.websocket_connect("/ws") as host:
+            host.send_json({"type": "host_hello", "host_token": HOST_TOKEN})
+            receive_until(host, "welcome")
+            host.send_json({"type": "start_question"})
+            state = receive_until(host, "room_state", where=lambda m: m["phase"] == "reading")
+
+            host.send_json({"type": "ai_buzz", "round_id": state["round_id"]})
+            error = receive_until(host, "error")
+
+            assert error["code"] == "not_joined"
+
+    def test_回答者は_ai_buzz_を送れない(self, client: TestClient) -> None:
+        """buzz に player_id を載せる方式にしなかった理由の確認。
+
+        出題者が任意の参加者になりすまして押せる形にはしていない。
+        """
+        with client.websocket_connect("/ws") as player:
+            player.send_json({"type": "join", "name": "たけ"})
+            receive_until(player, "welcome")
+            player.send_json({"type": "ai_buzz", "round_id": 1})
+
+            error = receive_until(player, "error")
+
+            assert error["code"] == "forbidden"
+
+    def test_人間が先に押していれば_ai_buzz_は弾かれる(self, client: TestClient) -> None:
+        with (
+            client.websocket_connect("/ws") as host,
+            client.websocket_connect("/ws") as player,
+        ):
+            host.send_json({"type": "host_hello", "host_token": HOST_TOKEN})
+            receive_until(host, "welcome")
+            host.send_json({"type": "ai_join", "name": "AI"})
+            player.send_json({"type": "join", "name": "たけ"})
+            receive_until(player, "welcome")
+
+            host.send_json({"type": "start_question"})
+            state = receive_until(host, "room_state", where=lambda m: m["phase"] == "reading")
+            round_id = state["round_id"]
+
+            player.send_json({"type": "buzz", "round_id": round_id})
+            receive_until(player, "buzz_accepted")
+
+            host.send_json({"type": "ai_buzz", "round_id": round_id})
+            rejected = receive_until(host, "buzz_rejected")
+
+            assert rejected["reason"] == "too_late"

@@ -449,3 +449,176 @@ body {
   color: var(--muted);
   font-size: 1.1rem;
 }
+
+/* --- AI 参加者 --- */
+
+/* 参加者一覧での AI。人間と一目で区別できるようにする */
+.player-item.ai .player-item-name {
+  color: var(--accent);
+}
+
+.ai-panel {
+  margin-top: 1.5rem;
+  padding: 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+}
+
+.ai-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.ai-panel-header h2 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.ai-panel-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.ai-panel-notice {
+  margin: 0.6rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.ai-panel-judgement {
+  margin: 0.6rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-panel-judgement-head {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0 0 0.4rem;
+}
+
+.ai-panel-judgement-reason {
+  flex: 1;
+  text-align: right;
+}
+
+/* 判定の観測値。数字だけだと閾値までの距離が読み取りにくいのでバーで出す */
+.ai-gauge {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+}
+
+.ai-gauge-label {
+  width: 3.8rem;
+  flex-shrink: 0;
+  font-size: 0.72rem;
+}
+
+.ai-gauge-track {
+  position: relative;
+  flex: 1;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.ai-gauge-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--muted);
+  transition: width 0.15s ease-out;
+}
+
+/* 閾値に届いた指標。押下条件を満たしていることを色で示す */
+.ai-gauge-fill.is-reached {
+  background: var(--accent);
+}
+
+/* 閾値の位置。overflow: hidden の内側なので fill より前面に出す */
+.ai-gauge-threshold {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--fg);
+  opacity: 0.65;
+}
+
+.ai-gauge-value {
+  width: 2.2rem;
+  flex-shrink: 0;
+  text-align: right;
+  font-size: 0.72rem;
+}
+
+/* 投影に出す AI の回答。正解と同じ phase でのみ表示される */
+.ai-answer {
+  margin-top: 1.5rem;
+  padding: 1rem 1.2rem;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: rgba(227, 179, 65, 0.08);
+}
+
+.ai-answer-title {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--accent);
+}
+
+.ai-answer-main {
+  margin: 0.5rem 0 0;
+  font-size: 1.6rem;
+}
+
+.ai-answer-none {
+  color: var(--muted);
+  font-size: 1.1rem;
+}
+
+.ai-answer-reason {
+  margin-left: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.ai-answer-models {
+  margin-top: 0.8rem;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-answer-models td {
+  padding: 0.2rem 0.8rem 0.2rem 0;
+}
+
+.ai-model-label {
+  color: var(--muted);
+}
+
+.ai-model-error {
+  color: var(--wrong);
+}
+
+/* 応答待ち。失敗（--wrong）と区別できる色にする */
+.ai-model-pending {
+  color: var(--muted);
+}
+
+.ai-model-ms {
+  text-align: right;
+  color: var(--muted);
+}

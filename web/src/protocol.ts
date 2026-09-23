@@ -30,6 +30,44 @@ export type PlayerView = {
   connected: boolean;
   /** お手つきで同一ラウンドの早押しを禁じられている */
   locked_out: boolean;
+  /**
+   * AI（Jev + LLM 合議）の参加者か。投影で人間と区別するために使う。
+   * 早押しの扱いは人間と同じで、buzz の排他も locked_out もそのまま乗る。
+   */
+  is_ai: boolean;
+};
+
+/** 合議に参加した 1 モデルの応答 */
+export type AiModelAnswerView = {
+  label: string;
+  /** 回答。失敗した場合と応答待ちの場合は空 */
+  answer: string;
+  /** サーバ実測の応答時間 */
+  elapsed_ms: number;
+  /** 失敗した場合の理由。成功時と応答待ちは null */
+  error?: string | null;
+  /**
+   * まだ応答が届いていない。
+   *
+   * 早期確定で先に合議が決まると、残りのモデルは応答待ちのまま投影へ出る。
+   * 失敗と同じ表示にすると「待っても来ない」ように見えるため区別する。
+   */
+  pending?: boolean;
+};
+
+/**
+ * AI の回答。正解と同じ phase でのみ投影へ出る。
+ *
+ * 合議が固まった時点ではなく、出題者が check を押して正解が出るのと
+ * 同じタイミングで見せる。
+ */
+export type AiAnswerView = {
+  /** 合議で採用された回答。全モデルが失敗した場合は null */
+  answer: string | null;
+  /** どう決まったかの説明 */
+  reason: string;
+  /** 各モデルの応答。採用されなかったものも含む */
+  models: AiModelAnswerView[];
 };
 
 export type BuzzedView = {
@@ -68,6 +106,24 @@ export type ClientMessage =
   | { type: 'join'; name: string; token?: string | null }
   | { type: 'host_hello'; host_token: string }
   | { type: 'buzz'; round_id: number; client_sent_at?: number }
+  /** AI を参加者として登録する。出題者のみ */
+  | { type: 'ai_join'; name?: string }
+  /**
+   * AI が早押しする。出題者のみ。
+   *
+   * buzz と分けているのは、buzz が「その接続自身の player_id」で押す
+   * メッセージであるため。buzz へ player_id を載せられるようにすると、
+   * 出題者が任意の参加者になりすまして押せてしまう。
+   */
+  | { type: 'ai_buzz'; round_id: number; judged_length?: number | null }
+  /** AI の合議結果を送る。出題者のみ。受け取っても phase は変わらない */
+  | {
+      type: 'ai_answer';
+      round_id: number;
+      answer: string | null;
+      reason: string;
+      models: AiModelAnswerView[];
+    }
   | { type: 'start_question'; question_id?: string | null }
   | { type: 'reading_ended'; round_id: number }
   | { type: 'time_up'; round_id: number }
@@ -93,6 +149,11 @@ export type RoomStateMessage = {
   buzzed: BuzzedView | null;
   question: QuestionView | null;
   judgement: JudgementView | null;
+  /**
+   * AI の回答。正解と同じ phase でのみ載る（check / timeUp / result）。
+   * 回答者へは常に null で送られる。
+   */
+  ai_answer: AiAnswerView | null;
   /** この一巡で未出題の問題数 */
   remaining_questions: number;
   /** 全問数 */
