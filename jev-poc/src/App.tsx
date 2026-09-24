@@ -340,6 +340,7 @@ export function App() {
                   : judgement?.by === 'ai' && judgement.correct
               }
               available={ai.health === 'online'}
+              readText={ai.state.readText}
             />
           )}
 
