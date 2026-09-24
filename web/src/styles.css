@@ -278,12 +278,9 @@ body {
   vertical-align: text-bottom;
 }
 
-/* 停止後に見せる全文。読み上げ済みの部分と区別する */
-.question-full {
-  margin: 0;
+/* 停止後に見せる、読まれなかった残りの問題文。読み上げ済みの部分と区別する */
+.question-rest {
   color: var(--muted);
-  font-size: clamp(1rem, 1.5vw, 1.25rem);
-  line-height: 1.7;
 }
 
 .question-answer {
