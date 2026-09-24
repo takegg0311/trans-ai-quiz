@@ -7,7 +7,8 @@
  *
  * 流れ:
  *   読み上げ中 → Jev が確定ポイントと判断 → ai_buzz をサーバへ
- *   → 3 モデルへ並列送信 → 合議 → ai_answer をサーバへ
+ *   → buzz_accepted で読み上げが止まる → 止まった位置までの問題文を
+ *     3 モデルへ並列送信（answer） → 合議 → ai_answer をサーバへ
  *
  * 判定（正誤）はここでは行わない。出題者が check で正解を確認してから
  * judge を押す。合議が固まった瞬間に判定すると、投影を見ている全員へ
@@ -105,6 +106,11 @@ export function useAiPlayer({ send, roundId, questionId }: Props) {
   const lastSentRef = useRef(-1);
   /** このラウンドで既に押したか */
   const pressedRef = useRef(false);
+  /**
+   * ai_buzz を送って受理を待っている押下。受理されたら answer で回答を始める。
+   * 人間が先に押して弾かれた場合は、受理が来ないまま reset で捨てる
+   */
+  const awaitingRef = useRef<{ round: number; questionId: string } | null>(null);
   /** 疎通確認の世代。古い結果で新しい結果を上書きしない */
   const healthGenerationRef = useRef(0);
   /**
@@ -159,6 +165,7 @@ export function useAiPlayer({ send, roundId, questionId }: Props) {
     inFlightRef.current = false;
     lastSentRef.current = -1;
     pressedRef.current = false;
+    awaitingRef.current = null;
     setLastJudgement(null);
   }, []);
 
@@ -210,6 +217,8 @@ export function useAiPlayer({ send, roundId, questionId }: Props) {
               answer: settled.answer,
               reason: describeConsensus(settled),
               models: toModelViews(answers),
+              // 予測文のうち読み上げ済みの部分を見分けるため、送った文そのものを載せる
+              read_text: partialText,
             });
           },
         );
@@ -266,21 +275,51 @@ export function useAiPlayer({ send, roundId, questionId }: Props) {
         if (questionId !== currentQuestionRef.current) return;
 
         pressedRef.current = true;
+        awaitingRef.current = { round, questionId };
         sendRef.current({ type: 'ai_buzz', round_id: round, judged_length: chars });
-        // 押した時点で読み上げられていた範囲を渡す。Jev が判断した位置では
-        // ない——人間が同じ位置で押した場合にも同じ範囲が聞こえている
-        runAnswer(partialText, round, questionId);
+        // ここでは回答を始めない。LLM へ渡すのは Jev が判断した文ではなく、
+        // 受理されて読み上げが止まった位置までの文（answer で受け取る）
       });
     },
-    [readiness.jev, runAnswer],
+    [readiness.jev],
   );
 
-  return { enabled, setEnabled, readiness, lastJudgement, feed, reset, stop, refresh };
+  /**
+   * AI の押下が受理された。読み上げを止めた位置までの問題文で回答を始める。
+   *
+   * readText は**実際に読み上げられた範囲**で、投影に出ている問題文と同じ。
+   * Jev が判定に使った文ではない。判定から受理までの間も読み上げは進んでおり、
+   * 人間が同じ位置で押した場合にも同じ範囲が聞こえている。AI にだけ狭い範囲を
+   * 渡すと対決の条件が不利になる（jev-poc と同じ扱い）。
+   */
+  const answer = useCallback(
+    (round: number, questionId: string, readText: string) => {
+      const awaiting = awaitingRef.current;
+      if (awaiting === null) return;
+      // 押した問題と受理された問題が違えば回答しない
+      if (awaiting.round !== round || awaiting.questionId !== questionId) return;
+      awaitingRef.current = null;
+      runAnswer(readText, round, questionId);
+    },
+    [runAnswer],
+  );
+
+  return {
+    enabled,
+    setEnabled,
+    readiness,
+    lastJudgement,
+    feed,
+    answer,
+    reset,
+    stop,
+    refresh,
+  };
 }
 
 /** 各モデルの応答を投影用の形へ写す */
 function toModelViews(answers: (ModelAnswer | null)[]): AiModelAnswerView[] {
-  return answers.flatMap((answer, index) => {
+  return answers.flatMap((answer, index): AiModelAnswerView[] => {
     const opponent = OPPONENTS[index];
     if (opponent === undefined) return [];
     // まだ届いていない。失敗ではないので error にはしない
@@ -292,7 +331,12 @@ function toModelViews(answers: (ModelAnswer | null)[]): AiModelAnswerView[] {
     switch (result.status) {
       case 'ok':
         return [
-          { label: opponent.label, answer: result.answer, elapsed_ms: result.elapsedMs },
+          {
+            label: opponent.label,
+            answer: result.answer,
+            elapsed_ms: result.elapsedMs,
+            continuation: result.continuation,
+          },
         ];
       case 'violation':
         return [

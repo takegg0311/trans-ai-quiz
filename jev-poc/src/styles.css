@@ -686,6 +686,31 @@ body {
   background: rgba(255, 213, 74, 0.12);
 }
 
+/* 予測した問題文の行。モデルの行と 1 組に見えるよう、間の罫線を消す */
+.ai-answer-table tr:has(+ .ai-continuation-row) td {
+  border-bottom: none;
+}
+
+.ai-answer-table .ai-continuation-row td {
+  padding-top: 0;
+  text-align: left;
+}
+
+.ai-continuation {
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* 読み上げ済みの部分。LLM へ送った文そのものなので目立たせない */
+.ai-continuation-read {
+  color: var(--muted);
+}
+
+/* LLM が予測で補った部分 */
+.ai-continuation-predicted {
+  font-weight: bold;
+}
+
 .ai-answer-result {
   margin: 0.8rem 0 0;
   padding: 0.6rem;

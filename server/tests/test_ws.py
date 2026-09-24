@@ -74,6 +74,22 @@ def receive_until(
     raise AssertionError(f"条件を満たす {message_type} が届きませんでした")
 
 
+def _buzz_by_ai(host: WebSocket) -> int:
+    """出題者として AI を登録し、出題して AI に押させる。round_id を返す。"""
+    host.send_json({"type": "host_hello", "host_token": HOST_TOKEN})
+    receive_until(host, "welcome")
+    host.send_json({"type": "ai_join", "name": "AI"})
+    receive_until(host, "room_state", where=lambda m: len(m["players"]) == 1)
+
+    host.send_json({"type": "start_question"})
+    state = receive_until(host, "room_state", where=lambda m: m["phase"] == "reading")
+    round_id: int = state["round_id"]
+
+    host.send_json({"type": "ai_buzz", "round_id": round_id, "judged_length": 12})
+    receive_until(host, "buzz_accepted")
+    return round_id
+
+
 class TestJoin:
     def test_参加すると_welcome_が返る(self, client: TestClient) -> None:
         with client.websocket_connect("/ws") as websocket:
@@ -499,6 +515,67 @@ class TestAiPlayer:
             # （どの問題が抽選されるかはシャッフル次第なので、内容は問わない）
             assert state["question"]["answers"] is not None
             assert state["ai_answer"]["answer"] == "富士山"
+
+    def test_ai_の回答は予測文と送った問題文を引き継ぐ(self, client: TestClient) -> None:
+        """予測文（continuation）と送った問題文（read_text）が投影まで届く。
+
+        どちらも ws.py で AiAnswerView へ詰め直しており、そこで落とすと
+        出題者画面に予測文が出なくなる。
+        """
+        with client.websocket_connect("/ws") as host:
+            round_id = _buzz_by_ai(host)
+
+            host.send_json(
+                {
+                    "type": "ai_answer",
+                    "round_id": round_id,
+                    "answer": "富士山",
+                    "reason": "2/2 が同じ回答",
+                    "read_text": "日本で一番高い山は",
+                    "models": [
+                        {
+                            "label": "Claude",
+                            "answer": "富士山",
+                            "elapsed_ms": 900,
+                            "continuation": "日本で一番高い山は何でしょう？",
+                        },
+                        {"label": "Grok", "answer": "", "elapsed_ms": 0, "pending": True},
+                    ],
+                }
+            )
+            state = receive_until(
+                host, "room_state", where=lambda m: m["ai_answer"] is not None
+            )
+
+            ai_answer = state["ai_answer"]
+            assert ai_answer["read_text"] == "日本で一番高い山は"
+            assert ai_answer["models"][0]["continuation"] == "日本で一番高い山は何でしょう？"
+            # 応答待ちのモデルには予測文が無い
+            assert ai_answer["models"][1]["continuation"] is None
+
+    def test_予測文を送らない古い出題者フロントの_ai_answer_も受け付ける(
+        self, client: TestClient
+    ) -> None:
+        with client.websocket_connect("/ws") as host:
+            round_id = _buzz_by_ai(host)
+
+            host.send_json(
+                {
+                    "type": "ai_answer",
+                    "round_id": round_id,
+                    "answer": "富士山",
+                    "reason": "2/2 が同じ回答",
+                    "models": [{"label": "Claude", "answer": "富士山", "elapsed_ms": 900}],
+                }
+            )
+            state = receive_until(
+                host, "room_state", where=lambda m: m["ai_answer"] is not None
+            )
+
+            ai_answer = state["ai_answer"]
+            assert ai_answer["answer"] == "富士山"
+            assert ai_answer["read_text"] == ""
+            assert ai_answer["models"][0]["continuation"] is None
 
     def test_ai_が参加していなければ_ai_buzz_は弾く(self, client: TestClient) -> None:
         with client.websocket_connect("/ws") as host:

@@ -269,6 +269,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                             answer=message.answer,
                             reason=message.reason,
                             models=message.models,
+                            read_text=message.read_text,
                         ),
                     ):
                         await manager.broadcast_state(room)

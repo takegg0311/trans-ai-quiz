@@ -44,11 +44,17 @@ export type AiAnswerState = {
   slots: SlotState[];
   /** 合議が確定した時点の結果。確定前は null。遅れて届いた応答では変えない */
   consensus: Consensus | null;
+  /**
+   * LLM へ送った途中までの問題文。未送信なら空。
+   * 予測文のうち読み上げ済みの部分を見分けるために使う
+   */
+  readText: string;
 };
 
 const IDLE: AiAnswerState = {
   slots: OPPONENTS.map(() => ({ state: 'idle' as const })),
   consensus: null,
+  readText: '',
 };
 
 export function useAiAnswer() {
@@ -124,7 +130,11 @@ export function useAiAnswer() {
 
       if (health !== 'online') {
         const consensus = decideConsensus([]);
-        setState({ slots: OPPONENTS.map(() => ({ state: 'idle' as const })), consensus });
+        setState({
+          slots: OPPONENTS.map(() => ({ state: 'idle' as const })),
+          consensus,
+          readText: partialText,
+        });
         onSettled(consensus);
         return;
       }
@@ -132,6 +142,7 @@ export function useAiAnswer() {
       setState({
         slots: OPPONENTS.map(() => ({ state: 'pending' as const })),
         consensus: null,
+        readText: partialText,
       });
 
       const answers: (ModelAnswer | null)[] = OPPONENTS.map(() => null);
