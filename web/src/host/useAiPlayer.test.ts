@@ -33,8 +33,12 @@ const PRESS: jev.JudgeResult = {
 const HOLD: jev.JudgeResult = { ...PRESS, buzz: 0.1 };
 
 /** 予測の成功応答を作る */
-function answer(text: string, elapsedMs: number): llm.PredictResult {
-  return { status: 'ok', continuation: null, answer: text, elapsedMs, raw: '' };
+function answer(
+  text: string,
+  elapsedMs: number,
+  continuation: string | null = null,
+): llm.PredictResult {
+  return { status: 'ok', continuation, answer: text, elapsedMs, raw: '' };
 }
 
 /** 危険区間を抜けた長さの文字列 */
@@ -260,6 +264,48 @@ describe('遅れて届いたモデルの回答', () => {
       .map((call) => call[0])
       .filter((message) => message.type === 'ai_answer');
     expect(sent).toHaveLength(0);
+  });
+});
+
+describe('予測した問題文', () => {
+  it('ai_answer に各モデルの予測文と、LLM へ送った問題文を載せる', async () => {
+    // 投影で読み上げ済み部分と予測部分を分けるには、送った文そのものが要る
+    vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    const resolvers: ((value: llm.PredictResult) => void)[] = [];
+    vi.spyOn(llm, 'predict').mockImplementation(
+      () =>
+        new Promise<llm.PredictResult>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    const { hook, send } = await mount('q1');
+
+    await act(async () => {
+      hook.result.current.feed(TEXT, 40, 'q1');
+    });
+    await waitFor(() => expect(resolvers).toHaveLength(OPPONENTS.length));
+
+    await act(async () => {
+      resolvers[0]?.(answer('富士山', 1000, `${TEXT}富士山？`));
+      resolvers[1]?.({
+        status: 'violation',
+        violation: 'JSON として解釈できません',
+        elapsedMs: 1100,
+        raw: '',
+      });
+      resolvers[2]?.(answer('富士山', 1200, `${TEXT}日本一の山は？`));
+    });
+
+    const sent = send.mock.calls
+      .map((call) => call[0])
+      .filter((message) => message.type === 'ai_answer');
+    const last = sent[sent.length - 1];
+
+    expect(last.read_text).toBe(TEXT);
+    expect(last.models[0]?.continuation).toBe(`${TEXT}富士山？`);
+    // 違反には予測文が無い
+    expect(last.models[1]?.continuation).toBeUndefined();
+    expect(last.models[2]?.continuation).toBe(`${TEXT}日本一の山は？`);
   });
 });
 

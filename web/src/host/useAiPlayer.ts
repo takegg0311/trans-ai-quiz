@@ -210,6 +210,8 @@ export function useAiPlayer({ send, roundId, questionId }: Props) {
               answer: settled.answer,
               reason: describeConsensus(settled),
               models: toModelViews(answers),
+              // 予測文のうち読み上げ済みの部分を見分けるため、送った文そのものを載せる
+              read_text: partialText,
             });
           },
         );
@@ -280,7 +282,7 @@ export function useAiPlayer({ send, roundId, questionId }: Props) {
 
 /** 各モデルの応答を投影用の形へ写す */
 function toModelViews(answers: (ModelAnswer | null)[]): AiModelAnswerView[] {
-  return answers.flatMap((answer, index) => {
+  return answers.flatMap((answer, index): AiModelAnswerView[] => {
     const opponent = OPPONENTS[index];
     if (opponent === undefined) return [];
     // まだ届いていない。失敗ではないので error にはしない
@@ -292,7 +294,12 @@ function toModelViews(answers: (ModelAnswer | null)[]): AiModelAnswerView[] {
     switch (result.status) {
       case 'ok':
         return [
-          { label: opponent.label, answer: result.answer, elapsed_ms: result.elapsedMs },
+          {
+            label: opponent.label,
+            answer: result.answer,
+            elapsed_ms: result.elapsedMs,
+            continuation: result.continuation,
+          },
         ];
       case 'violation':
         return [
