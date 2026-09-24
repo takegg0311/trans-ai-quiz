@@ -395,6 +395,47 @@ describe('予測した問題文', () => {
     expect(last.models[1]?.continuation).toBeUndefined();
     expect(last.models[2]?.continuation).toBe(`${TEXT}日本一の山は？`);
   });
+  it('確定後に遅れて届いたモデルの予測文も送り直す', async () => {
+    // 早期確定の後に届いたモデルの予測文も、届いた時点で投影へ出す
+    vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    const resolvers: ((value: llm.PredictResult) => void)[] = [];
+    vi.spyOn(llm, 'predict').mockImplementation(
+      () =>
+        new Promise<llm.PredictResult>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    const { hook, send } = await mount('q1');
+
+    await pressAndAccept(hook, HEARD);
+    await waitFor(() => expect(resolvers).toHaveLength(OPPONENTS.length));
+
+    // 2 モデルが一致して確定する。3 モデル目は応答待ちで予測文が無い
+    await act(async () => {
+      resolvers[0]?.(answer('富士山', 1000, `${HEARD}富士山？`));
+      resolvers[1]?.(answer('富士山', 1200, `${HEARD}日本一の山は？`));
+    });
+    const settled = send.mock.calls
+      .map((call) => call[0])
+      .filter((message) => message.type === 'ai_answer');
+    expect(settled).toHaveLength(1);
+    expect(settled[0].models[2]?.continuation).toBeUndefined();
+
+    // 3 モデル目が遅れて届く
+    await act(async () => {
+      resolvers[2]?.(answer('北岳', 5500, `${HEARD}二番目に高い山は？`));
+    });
+
+    const all = send.mock.calls
+      .map((call) => call[0])
+      .filter((message) => message.type === 'ai_answer');
+    expect(all).toHaveLength(2);
+    const last = all[1];
+    expect(last.models[2]?.continuation).toBe(`${HEARD}二番目に高い山は？`);
+    // 先に届いた予測文と、送った問題文も保たれる
+    expect(last.models[0]?.continuation).toBe(`${HEARD}富士山？`);
+    expect(last.read_text).toBe(HEARD);
+  });
 });
 
 describe('自動のオン / オフ', () => {
