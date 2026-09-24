@@ -57,6 +57,11 @@ class AiModelAnswerView(BaseModel):
     elapsed_ms: int = 0
     #: 失敗した場合の理由。成功時と応答待ちは None
     error: str | None = None
+    #: モデルが予測した問題文（冒頭から末尾までの全文）。
+    #
+    # 答えがどう導かれたかを投影で見せるために使う。失敗・応答待ちと、
+    # モデルが返さなかった場合は None。古い出題者フロントは送らない。
+    continuation: str | None = None
     #: まだ応答が届いていない。
     #
     # 早期確定（2 モデル一致）で先に合議が決まると、残りのモデルは
@@ -79,6 +84,11 @@ class AiAnswerView(BaseModel):
     reason: str = ""
     #: 各モデルの応答。採用されなかったものも含めて出す
     models: list[AiModelAnswerView] = Field(default_factory=list)
+    #: LLM へ送った途中までの問題文。
+    #
+    # 予測文のうち読み上げ済みの部分を見分けるために使う。押した後の
+    # 表示文字数から復元すると、実際に送った文字列と一致する保証が無い。
+    read_text: str = ""
 
 
 class QuestionView(BaseModel):
@@ -172,6 +182,8 @@ class AiAnswerMessage(BaseModel):
     answer: str | None = None
     reason: str = ""
     models: list[AiModelAnswerView] = Field(default_factory=list)
+    #: LLM へ送った途中までの問題文。古い出題者フロントは送らない
+    read_text: str = ""
 
 
 class StartQuestionMessage(BaseModel):
