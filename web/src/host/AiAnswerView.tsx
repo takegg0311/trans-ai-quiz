@@ -8,8 +8,13 @@
  *
  * 採用された回答だけでなく各モデルの応答も出す。どう決まったかが
  * 分からないと合議の妥当性を確かめられない。
+ *
+ * 各モデルが予測した問題文も、そのモデルの行の下に出す。答えが同じでも
+ * 予測文はモデルごとに違うことがあり、1 つに代表させると恣意的になる。
  */
-import type { AiAnswerView as AiAnswer } from '../protocol';
+import { Fragment } from 'react';
+import { splitContinuation } from '../lib/continuation';
+import type { AiAnswerView as AiAnswer, AiModelAnswerView } from '../protocol';
 
 type Props = {
   /** 合議の結果。まだ固まっていなければ null */
@@ -50,28 +55,75 @@ export function AiAnswerView({ answer, pending }: Props) {
       {answer.models.length > 0 && (
         <table className="ai-answer-models">
           <tbody>
-            {answer.models.map((model) => (
-              <tr key={model.label}>
-                <td className="ai-model-label">{model.label}</td>
-                <td className="ai-model-answer">
-                  {model.pending === true ? (
-                    // 早期確定で先に合議が決まった場合、残りはここに入る。
-                    // 失敗と同じ見た目にすると「待っても来ない」と見える
-                    <span className="ai-model-pending">応答待ち…</span>
-                  ) : model.error != null && model.error !== '' ? (
-                    <span className="ai-model-error">{model.error}</span>
-                  ) : (
-                    model.answer
+            {answer.models.map((model) => {
+              const continuation = continuationOf(model);
+              return (
+                <Fragment key={model.label}>
+                  <tr>
+                    <td className="ai-model-label">{model.label}</td>
+                    <td className="ai-model-answer">
+                      {model.pending === true ? (
+                        // 早期確定で先に合議が決まった場合、残りはここに入る。
+                        // 失敗と同じ見た目にすると「待っても来ない」と見える
+                        <span className="ai-model-pending">応答待ち…</span>
+                      ) : model.error != null && model.error !== '' ? (
+                        <span className="ai-model-error">{model.error}</span>
+                      ) : (
+                        model.answer
+                      )}
+                    </td>
+                    <td className="ai-model-ms">
+                      {model.elapsed_ms > 0 ? `${model.elapsed_ms}ms` : ''}
+                    </td>
+                  </tr>
+                  {continuation !== null && (
+                    <tr>
+                      <td />
+                      <td className="ai-model-continuation" colSpan={2}>
+                        <ContinuationText
+                          continuation={continuation}
+                          readText={answer.read_text}
+                        />
+                      </td>
+                    </tr>
                   )}
-                </td>
-                <td className="ai-model-ms">
-                  {model.elapsed_ms > 0 ? `${model.elapsed_ms}ms` : ''}
-                </td>
-              </tr>
-            ))}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       )}
     </section>
   );
+}
+
+/** 予測した問題文。読み上げ済みの部分は薄く、予測で補った部分は強調する */
+function ContinuationText({
+  continuation,
+  readText,
+}: {
+  continuation: string;
+  readText: string;
+}) {
+  const split = splitContinuation(continuation, readText);
+  if (split.kind === 'whole') {
+    return <p className="ai-continuation">{split.text}</p>;
+  }
+  return (
+    <p className="ai-continuation">
+      <span className="ai-continuation-read">{split.read}</span>
+      <span className="ai-continuation-predicted">{split.predicted}</span>
+    </p>
+  );
+}
+
+/**
+ * 1 モデル分の予測文。出さない場合は null。
+ * 違反・エラー・応答待ちには予測文が無い。成功でも返らないことがある
+ */
+function continuationOf(model: AiModelAnswerView): string | null {
+  if (model.pending === true) return null;
+  if (model.error != null && model.error !== '') return null;
+  if (model.continuation == null || model.continuation === '') return null;
+  return model.continuation;
 }

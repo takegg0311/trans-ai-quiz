@@ -99,8 +99,13 @@ export function App() {
     clock.startedAt = performance.now();
   }, []);
 
-  /** 音声と文字送りをその場で止める */
-  const freeze = useCallback(() => {
+  /**
+   * 音声と文字送りをその場で止める。
+   *
+   * 止めた時点で表示している問題文を返す（問題が未読み込みなら null）。
+   * AI が押した場合は、これをそのまま LLM へ渡す。
+   */
+  const freeze = useCallback((): { questionId: string; text: string } | null => {
     const audio = audioRef.current;
     const loaded = questionRef.current;
     frozenRef.current = true;
@@ -108,12 +113,20 @@ export function App() {
     pauseSilentClock();
     stopTracking();
 
-    if (loaded === null) return;
-    setFrozenLength(visibleLength(loaded.alignment, currentPosition()));
+    if (loaded === null) return null;
+    const length = visibleLength(loaded.alignment, currentPosition());
+    setFrozenLength(length);
+    return { questionId: loaded.id, text: [...loaded.text].slice(0, length).join('') };
   }, [stopTracking, pauseSilentClock, currentPosition]);
 
   /** AI の判定停止。handleMessage から呼ぶため ref で持つ */
   const aiStopRef = useRef<() => void>(() => {});
+  /** AI の押下が受理されたときの回答開始。handleMessage から呼ぶため ref で持つ */
+  const aiAnswerRef = useRef<(round: number, questionId: string, readText: string) => void>(
+    () => {},
+  );
+  /** 参加者一覧。buzz_accepted が AI のものかを見分けるため、最新値を ref に持つ */
+  const playersRef = useRef<RoomStateMessage['players']>([]);
 
   const handleOpen = useCallback((send: (message: ClientMessage) => void) => {
     send({ type: 'host_hello', host_token: hostToken.current });
@@ -123,17 +136,30 @@ export function App() {
     (message: ServerMessage) => {
       switch (message.type) {
         case 'room_state':
+          playersRef.current = message.players;
           setState(message);
           break;
 
-        case 'buzz_accepted':
+        case 'buzz_accepted': {
           // 誰かが押した。問題文と音声をその場で止める。
           // 押したフィードバックなので、鳴り終わりは待たない
-          freeze();
+          const frozen = freeze();
           void playJingle('buzz');
           // 人間が先に押した場合も含め、以降このラウンドでは判定しない
           aiStopRef.current();
+
+          // AI が押した場合は、ここで止めた範囲を LLM へ渡して回答させる。
+          // **Jev が判定に使った文ではない。** 判定から受理までの間も読み上げは
+          // 進んでおり、投影にはその分まで出ている。人間が同じ位置で押した場合にも
+          // 同じ範囲が聞こえているため、AI にだけ狭い範囲を渡すと条件が不利になる
+          const isAi = playersRef.current.some(
+            (player) => player.id === message.player_id && player.is_ai,
+          );
+          if (isAi && frozen !== null) {
+            aiAnswerRef.current(message.round_id, frozen.questionId, frozen.text);
+          }
           break;
+        }
 
         case 'error':
           setError(message.message);
@@ -155,6 +181,7 @@ export function App() {
     state?.buzzed != null &&
     state.players.some((player) => player.id === state.buzzed?.player_id && player.is_ai);
   aiStopRef.current = ai.stop;
+  aiAnswerRef.current = ai.answer;
 
   /** AI の参加を切り替える。参加させる側だけサーバへ登録を送る */
   const handleToggleAi = useCallback(

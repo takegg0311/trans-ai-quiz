@@ -53,6 +53,11 @@ export type AiModelAnswerView = {
    * 失敗と同じ表示にすると「待っても来ない」ように見えるため区別する。
    */
   pending?: boolean;
+  /**
+   * モデルが予測した問題文（冒頭から末尾までの全文）。
+   * 失敗・応答待ちと、モデルが返さなかった場合は null
+   */
+  continuation?: string | null;
 };
 
 /**
@@ -68,6 +73,11 @@ export type AiAnswerView = {
   reason: string;
   /** 各モデルの応答。採用されなかったものも含む */
   models: AiModelAnswerView[];
+  /**
+   * LLM へ送った途中までの問題文。予測文のうち読み上げ済みの部分を
+   * 見分けるために使う。古い出題者フロントからは空
+   */
+  read_text: string;
 };
 
 export type BuzzedView = {
@@ -123,6 +133,7 @@ export type ClientMessage =
       answer: string | null;
       reason: string;
       models: AiModelAnswerView[];
+      read_text: string;
     }
   | { type: 'start_question'; question_id?: string | null }
   | { type: 'reading_ended'; round_id: number }

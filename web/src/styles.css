@@ -278,12 +278,9 @@ body {
   vertical-align: text-bottom;
 }
 
-/* 停止後に見せる全文。読み上げ済みの部分と区別する */
-.question-full {
-  margin: 0;
+/* 停止後に見せる、読まれなかった残りの問題文。読み上げ済みの部分と区別する */
+.question-rest {
   color: var(--muted);
-  font-size: clamp(1rem, 1.5vw, 1.25rem);
-  line-height: 1.7;
 }
 
 .question-answer {
@@ -583,6 +580,14 @@ body {
   font-size: 1.6rem;
 }
 
+/*
+ * 採用回答。投影で会場から読めるよう、問題文（.question-text）と同じ大きさにする。
+ * 「考え中…」「回答できませんでした」と合議の説明は小さいままにする
+ */
+.ai-answer-main strong {
+  font-size: clamp(1.75rem, 3.5vw, 3rem);
+}
+
 .ai-answer-none {
   color: var(--muted);
   font-size: 1.1rem;
@@ -621,4 +626,24 @@ body {
 .ai-model-ms {
   text-align: right;
   color: var(--muted);
+}
+
+/* 予測した問題文。モデルの行の下に、行と 1 組に見えるよう詰めて出す */
+.ai-answer-models .ai-model-continuation {
+  padding: 0 0 0.5rem;
+}
+
+.ai-continuation {
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* 読み上げ済みの部分。LLM へ送った文そのものなので目立たせない */
+.ai-continuation-read {
+  color: var(--muted);
+}
+
+/* LLM が予測で補った部分 */
+.ai-continuation-predicted {
+  font-weight: 700;
 }

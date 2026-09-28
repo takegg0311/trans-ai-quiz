@@ -33,8 +33,12 @@ const PRESS: jev.JudgeResult = {
 const HOLD: jev.JudgeResult = { ...PRESS, buzz: 0.1 };
 
 /** 予測の成功応答を作る */
-function answer(text: string, elapsedMs: number): llm.PredictResult {
-  return { status: 'ok', continuation: null, answer: text, elapsedMs, raw: '' };
+function answer(
+  text: string,
+  elapsedMs: number,
+  continuation: string | null = null,
+): llm.PredictResult {
+  return { status: 'ok', continuation, answer: text, elapsedMs, raw: '' };
 }
 
 /** 危険区間を抜けた長さの文字列 */
@@ -61,6 +65,23 @@ async function mount(questionId: string | null, send = vi.fn()) {
     hook.result.current.setEnabled(true);
   });
   return { hook, send };
+}
+
+/**
+ * Jev に押させ、サーバが受理したところまで進める。
+ * 受理されて読み上げが止まった位置までの問題文（readText）で回答が始まる
+ */
+async function pressAndAccept(
+  hook: Awaited<ReturnType<typeof mount>>['hook'],
+  readText = TEXT,
+) {
+  await act(async () => {
+    hook.result.current.feed(TEXT, 40, 'q1');
+  });
+  await waitFor(() => expect(hook.result.current.lastJudgement?.press).toBe(true));
+  act(() => {
+    hook.result.current.answer(1, 'q1', readText);
+  });
 }
 
 beforeEach(() => {
@@ -159,9 +180,7 @@ describe('遅れて届いたモデルの回答', () => {
     );
     const { hook, send } = await mount('q1');
 
-    await act(async () => {
-      hook.result.current.feed(TEXT, 40, 'q1');
-    });
+    await pressAndAccept(hook);
     await waitFor(() => expect(resolvers).toHaveLength(OPPONENTS.length));
 
     // 2 モデルが一致して確定する
@@ -210,9 +229,7 @@ describe('遅れて届いたモデルの回答', () => {
     );
     const { hook, send } = await mount('q1');
 
-    await act(async () => {
-      hook.result.current.feed(TEXT, 40, 'q1');
-    });
+    await pressAndAccept(hook);
     await waitFor(() => expect(resolvers).toHaveLength(OPPONENTS.length));
 
     await act(async () => {
@@ -246,9 +263,7 @@ describe('遅れて届いたモデルの回答', () => {
     );
     const { hook, send } = await mount('q1');
 
-    await act(async () => {
-      hook.result.current.feed(TEXT, 40, 'q1');
-    });
+    await pressAndAccept(hook);
     await waitFor(() => expect(resolvers).toHaveLength(OPPONENTS.length));
 
     // 1 モデルだけでは多数決が決まらない
@@ -260,6 +275,166 @@ describe('遅れて届いたモデルの回答', () => {
       .map((call) => call[0])
       .filter((message) => message.type === 'ai_answer');
     expect(sent).toHaveLength(0);
+  });
+});
+
+/** 判定から受理までの間に読み上げが進んだ分を含む、受理時点の問題文 */
+const HEARD = `${TEXT}いうえ`;
+
+describe('LLM へ渡す問題文', () => {
+  it('受理されるまでは LLM へ送らない', async () => {
+    vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    const predict = vi.spyOn(llm, 'predict');
+    const { hook, send } = await mount('q1');
+
+    await act(async () => {
+      hook.result.current.feed(TEXT, 40, 'q1');
+    });
+    await waitFor(() =>
+      expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'ai_buzz' })),
+    );
+
+    expect(predict).not.toHaveBeenCalled();
+  });
+
+  it('判定に使った文ではなく、受理時点まで読み上げられた文を送る', async () => {
+    // Jev の判定から受理までの間も読み上げは進み、投影にはその分まで出ている
+    vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    const predict = vi.spyOn(llm, 'predict');
+    const { hook } = await mount('q1');
+
+    await pressAndAccept(hook, HEARD);
+
+    await waitFor(() => expect(predict).toHaveBeenCalledTimes(OPPONENTS.length));
+    for (const call of predict.mock.calls) {
+      expect(call[2]).toBe(HEARD);
+    }
+  });
+
+  it('AI が押していなければ受理を渡されても送らない', async () => {
+    vi.spyOn(jev, 'judge').mockResolvedValue(HOLD);
+    const predict = vi.spyOn(llm, 'predict');
+    const { hook } = await mount('q1');
+
+    await act(async () => {
+      hook.result.current.feed(TEXT, 40, 'q1');
+    });
+    act(() => {
+      hook.result.current.answer(1, 'q1', HEARD);
+    });
+
+    expect(predict).not.toHaveBeenCalled();
+  });
+
+  it('押した問題と違う問題の受理では送らない', async () => {
+    vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    const predict = vi.spyOn(llm, 'predict');
+    const { hook } = await mount('q1');
+
+    await act(async () => {
+      hook.result.current.feed(TEXT, 40, 'q1');
+    });
+    await waitFor(() => expect(hook.result.current.lastJudgement?.press).toBe(true));
+    act(() => {
+      hook.result.current.answer(1, 'q2', HEARD);
+      hook.result.current.answer(2, 'q1', HEARD);
+    });
+
+    expect(predict).not.toHaveBeenCalled();
+  });
+
+  it('受理は 1 回だけ回答を始める', async () => {
+    vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    const predict = vi.spyOn(llm, 'predict');
+    const { hook } = await mount('q1');
+
+    await pressAndAccept(hook, HEARD);
+    act(() => {
+      hook.result.current.answer(1, 'q1', HEARD);
+    });
+
+    await waitFor(() => expect(predict).toHaveBeenCalledTimes(OPPONENTS.length));
+  });
+});
+
+describe('予測した問題文', () => {
+  it('ai_answer に各モデルの予測文と、LLM へ送った問題文を載せる', async () => {
+    // 投影で読み上げ済み部分と予測部分を分けるには、送った文そのものが要る
+    vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    const resolvers: ((value: llm.PredictResult) => void)[] = [];
+    vi.spyOn(llm, 'predict').mockImplementation(
+      () =>
+        new Promise<llm.PredictResult>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    const { hook, send } = await mount('q1');
+
+    await pressAndAccept(hook, HEARD);
+    await waitFor(() => expect(resolvers).toHaveLength(OPPONENTS.length));
+
+    await act(async () => {
+      resolvers[0]?.(answer('富士山', 1000, `${TEXT}富士山？`));
+      resolvers[1]?.({
+        status: 'violation',
+        violation: 'JSON として解釈できません',
+        elapsedMs: 1100,
+        raw: '',
+      });
+      resolvers[2]?.(answer('富士山', 1200, `${TEXT}日本一の山は？`));
+    });
+
+    const sent = send.mock.calls
+      .map((call) => call[0])
+      .filter((message) => message.type === 'ai_answer');
+    const last = sent[sent.length - 1];
+
+    expect(last.read_text).toBe(HEARD);
+    expect(last.models[0]?.continuation).toBe(`${TEXT}富士山？`);
+    // 違反には予測文が無い
+    expect(last.models[1]?.continuation).toBeUndefined();
+    expect(last.models[2]?.continuation).toBe(`${TEXT}日本一の山は？`);
+  });
+  it('確定後に遅れて届いたモデルの予測文も送り直す', async () => {
+    // 早期確定の後に届いたモデルの予測文も、届いた時点で投影へ出す
+    vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    const resolvers: ((value: llm.PredictResult) => void)[] = [];
+    vi.spyOn(llm, 'predict').mockImplementation(
+      () =>
+        new Promise<llm.PredictResult>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    const { hook, send } = await mount('q1');
+
+    await pressAndAccept(hook, HEARD);
+    await waitFor(() => expect(resolvers).toHaveLength(OPPONENTS.length));
+
+    // 2 モデルが一致して確定する。3 モデル目は応答待ちで予測文が無い
+    await act(async () => {
+      resolvers[0]?.(answer('富士山', 1000, `${HEARD}富士山？`));
+      resolvers[1]?.(answer('富士山', 1200, `${HEARD}日本一の山は？`));
+    });
+    const settled = send.mock.calls
+      .map((call) => call[0])
+      .filter((message) => message.type === 'ai_answer');
+    expect(settled).toHaveLength(1);
+    expect(settled[0].models[2]?.continuation).toBeUndefined();
+
+    // 3 モデル目が遅れて届く
+    await act(async () => {
+      resolvers[2]?.(answer('北岳', 5500, `${HEARD}二番目に高い山は？`));
+    });
+
+    const all = send.mock.calls
+      .map((call) => call[0])
+      .filter((message) => message.type === 'ai_answer');
+    expect(all).toHaveLength(2);
+    const last = all[1];
+    expect(last.models[2]?.continuation).toBe(`${HEARD}二番目に高い山は？`);
+    // 先に届いた予測文と、送った問題文も保たれる
+    expect(last.models[0]?.continuation).toBe(`${HEARD}富士山？`);
+    expect(last.read_text).toBe(HEARD);
   });
 });
 

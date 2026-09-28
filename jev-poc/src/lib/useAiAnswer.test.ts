@@ -252,3 +252,21 @@ describe('送信', () => {
     }
   });
 });
+
+describe('予測文の表示に使う問題文', () => {
+  it('LLM へ送った途中までの問題文を持ち、reset で捨てる', async () => {
+    // 予測文のうち読み上げ済みの部分を見分けるのに、送った文そのものが要る
+    deferred();
+    const { result } = await mount();
+
+    act(() => {
+      result.current.run('日本で一番高い山は', vi.fn());
+    });
+    expect(result.current.state.readText).toBe('日本で一番高い山は');
+
+    act(() => {
+      result.current.reset();
+    });
+    expect(result.current.state.readText).toBe('');
+  });
+});
