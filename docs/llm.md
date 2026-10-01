@@ -68,6 +68,8 @@ curl http://localhost:8000/api/llm/health
 
 ## llm-poc
 
+![image](llm-poc.png)
+
 早押しクイズの問題文を各社 LLM へ同じプロンプトで送り、答えを並べて比較する。
 結果は CSV へ記録され、後からモデル間の傾向を振り返れる。
 
