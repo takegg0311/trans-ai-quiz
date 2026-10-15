@@ -129,7 +129,7 @@ class JoinMessage(BaseModel):
 
 class HostHelloMessage(BaseModel):
     type: Literal["host_hello"] = "host_hello"
-    host_token: str
+    host_token: str = ""
 
 
 class BuzzMessage(BaseModel):
@@ -238,6 +238,21 @@ class NextMessage(BaseModel):
     type: Literal["next"] = "next"
 
 
+class AiToggleMessage(BaseModel):
+    type: Literal["ai_toggle"] = "ai_toggle"
+    enabled: bool
+
+
+class AiContextMessage(BaseModel):
+    type: Literal["ai_context"] = "ai_context"
+    round_id: int
+    read_text: str = Field(max_length=16000)
+
+
+class ResumeMessage(BaseModel):
+    type: Literal["resume"] = "resume"
+
+
 ClientMessage = Annotated[
     JoinMessage
     | HostHelloMessage
@@ -251,7 +266,10 @@ ClientMessage = Annotated[
     | CheckMessage
     | JudgeMessage
     | ReleaseMessage
-    | NextMessage,
+    | NextMessage
+    | ResumeMessage
+    | AiToggleMessage
+    | AiContextMessage,
     Field(discriminator="type"),
 ]
 
