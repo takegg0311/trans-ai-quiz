@@ -1,5 +1,7 @@
 # AI横断クイズ (trans-ai-quiz)
 
+Cloud Run での公開開催（主催者認証・問題ZIP・開催期限・再起動復元）は [docs/cloud-run.md](docs/cloud-run.md) を参照。ローカル起動の手順は従来どおり。
+
 ![image](docs/cover.png)
 
 早押しクイズの問題文を各社 LLM へ送り、続きの補完と答えを比較する。

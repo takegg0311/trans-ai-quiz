@@ -13,8 +13,8 @@
 cp quiz_data/questions_example.csv quiz_data/questions.csv
 ```
 
-現状、オンライン版の各行には `.wav` / `.txt` / `.lab` の 3 点が必要である。
-欠けているとサーバは起動するが、`/host` `/player` `/ws` は 503 で閉じる。
+音声あり問題には `.wav` / `.txt` / `.lab` の3点が必要である。3点ともない行は音声なし問題として使え、一部だけある場合は検証エラーになる。
+クラウド版では本ページの構成をZIPにまとめてアップロードする。容量制限と保存方針は [cloud-run.md](cloud-run.md) を参照。
 
 ## 問題データ — `quiz_data/`
 
