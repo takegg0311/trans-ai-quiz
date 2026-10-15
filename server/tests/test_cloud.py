@@ -289,3 +289,62 @@ def test_firestore_adapter_saves_mutations_and_skips_unchanged_values():
     assert writes == [{"count": 2}]
     assert store.update('auth-test', lambda previous: (previous, 'unchanged')) == 'unchanged'
     assert len(writes) == 1
+
+
+def test_authenticated_audio_delivery_and_expired_socket(environment):
+    settings, states, objects = environment
+    app = create_app(settings, states, objects)
+    headers = {"Origin": settings.public_url, "X-Quiz-Request": "1"}
+    data = archive(files={
+        'csvonly/0-csvonly.wav': b'RIFF' + b'0' * 32,
+        'csvonly/0-csvonly.txt': '問題です',
+        'csvonly/0-csvonly.lab': '0 10000000 a\n',
+    })
+    with TestClient(app, base_url=settings.public_url) as client:
+        client.post('/api/session', json={"password": "password"}, headers=headers)
+        client.post('/api/tournament', content=data, headers=headers).raise_for_status()
+        audio = client.get('/quiz_data/csvonly/0-csvonly.wav', headers={"Range": "bytes=0-3"})
+        assert audio.status_code == 206
+        assert audio.content == b'RIFF'
+        assert audio.headers['cache-control'] == 'no-store'
+        lab = client.get('/quiz_data/csvonly/0-csvonly.lab')
+        assert lab.status_code == 200
+        assert client.get('/quiz_data/csvonly/0-csvonly.txt').status_code == 404
+        query = client.get('/api/room').json()['join_url'].split('?', 1)[1]
+        with client.websocket_connect('wss://quiz.example/ws?' + query,
+                                      headers={"origin": settings.public_url}) as player:
+            player.send_json({"type": "join", "name": "期限検証"})
+            assert player.receive_json()['type'] == 'welcome'
+            assert player.receive_json()['type'] == 'room_state'
+            # ストアのTTL削除ではなく、各操作のサーバ時刻検証で拒否する。
+            now = app.state.service.clock()
+            app.state.service.clock = lambda: now + 86401
+            player.send_json({"type": "buzz", "round_id": 0})
+            assert player.receive_json()['code'] == 'ended'
+        assert client.get('/quiz_data/csvonly/0-csvonly.wav').status_code == 401
+
+
+def test_new_host_takes_over_while_previous_revision_is_alive(environment):
+    settings, states, objects = environment
+    first = TournamentService(settings, states, objects)
+    second = TournamentService(settings, states, objects)
+    event = first.start(archive(), 24)
+    def prepare(room, value):
+        room.join('参加者', None)
+        room.start_question()
+        room.buzz('p_1', room.round_id)
+    first.change(event['id'], prepare)
+    # 旧リビジョンが生存しリースを更新し続ける場合も、主催者は新プロセスへ復帰できる。
+    value, _ = second.change(event['id'], lambda room, document: execute(
+        room, document, SimpleNamespace(type='host_hello'), None, True), take_over=True)
+    assert value['paused'] is True
+    assert value['owner'] == second.owner
+    assert value['room']['round_id'] == 2
+    assert value['room']['buzzed'] == 'p_1'
+    assert first.heartbeat()['owner'] == second.owner
+    with pytest.raises(HTTPException):
+        first.change(event['id'], lambda room, document: execute(
+            room, document, SimpleNamespace(type='check', round_id=2), None, True))
+    second.change(event['id'], lambda room, document: execute(
+        room, document, SimpleNamespace(type='resume'), None, True))
+    assert first.read()['paused'] is False

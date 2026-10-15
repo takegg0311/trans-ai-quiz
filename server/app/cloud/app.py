@@ -293,7 +293,8 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
                             if message.type == "join":
                                 document.setdefault("connections", {})[result.id] = connection_id
                             return result
-                        value, result = await asyncio.to_thread(service.change, event_id, operation)
+                        value, result = await asyncio.to_thread(service.change, event_id, operation,
+                            take_over=is_host and message.type == "host_hello")
                         if message.type == "join":
                             player_id = result.id
                             manager.players[player_id] = socket

@@ -104,7 +104,8 @@ class TournamentService:
         self._questions = {event_id: questions}
         return result
 
-    def change(self, event_id: str, operation: Callable[[Room, Document], T]) -> tuple[Document, T]:
+    def change(self, event_id: str, operation: Callable[[Room, Document], T],
+               *, take_over: bool = False) -> tuple[Document, T]:
         # 認可・期限は必ず下のトランザクションで検証する。問題セットだけは不変。
         questions = self._questions.get(event_id)
         if questions is None:
@@ -113,7 +114,7 @@ class TournamentService:
 
         def apply(current: Document | None) -> tuple[Document, tuple[Document, T]]:
             value = copy.deepcopy(self.require(current, event_id))
-            self._take_over(value)
+            self._take_over(value, force=take_over)
             room = load_room(value["room"], questions)
             result = operation(room, value)
             if isinstance(result, BuzzResult) and not result.accepted:
@@ -127,20 +128,22 @@ class TournamentService:
 
         return self.states.update("current", apply)
 
-    def _take_over(self, value: Document) -> None:
+    def _take_over(self, value: Document, *, force: bool = False) -> None:
         now = self.clock()
         if value["owner"] == self.owner:
             value["lease_until"] = now + LEASE_SECONDS
-        elif value["lease_until"] <= now:
+        elif force or value["lease_until"] <= now:
+            previous_expired = value["lease_until"] <= now
             value["owner"] = self.owner
             value["lease_until"] = now + LEASE_SECONDS
             if value["room"]["phase"] not in ("idle", "result"):
                 value["paused"] = True
                 # 再起動前に処理中だった AI 結果・操作を拒否する。
                 value["room"]["round_id"] += 1
-            for player in value["room"]["players"]:
-                if not player["is_ai"]:
-                    player["connected"] = False
+            if previous_expired:
+                for player in value["room"]["players"]:
+                    if not player["is_ai"]:
+                        player["connected"] = False
 
     def heartbeat(self) -> Document | None:
         current = self.read()
