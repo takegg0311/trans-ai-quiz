@@ -141,7 +141,10 @@ export type ClientMessage =
   | { type: 'check'; round_id: number }
   | { type: 'judge'; round_id: number; correct: boolean }
   | { type: 'release'; round_id: number }
-  | { type: 'next' };
+  | { type: 'next' }
+  | { type: 'resume' }
+  | { type: 'ai_toggle'; enabled: boolean }
+  | { type: 'ai_context'; round_id: number; read_text: string };
 
 // ---------------------------------------------------- サーバ → クライアント
 
@@ -154,6 +157,10 @@ export type WelcomeMessage = {
 
 export type RoomStateMessage = {
   type: 'room_state';
+  paused?: boolean;
+  version?: number;
+  ai_enabled?: boolean;
+  ai_read_text?: string;
   round_id: number;
   phase: Phase;
   players: PlayerView[];

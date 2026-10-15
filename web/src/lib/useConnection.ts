@@ -11,20 +11,24 @@ import type { ClientMessage, ServerMessage } from '../protocol';
 /** 再接続の待ち時間。上限まで倍々にする */
 const RECONNECT_DELAYS_MS = [500, 1000, 2000, 5000] as const;
 
-export type ConnectionStatus = 'connecting' | 'open' | 'closed';
+export type ConnectionStatus = 'connecting' | 'open' | 'closed' | 'ended';
 
 type Options = {
+  role?: 'host';
   /** 接続が確立したとき。join / host_hello を送るために使う */
   onOpen?: (send: (message: ClientMessage) => void) => void;
   onMessage?: (message: ServerMessage) => void;
 };
 
-function socketUrl(): string {
+function socketUrl(role?: 'host'): string {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}/ws`;
+  const query = new URLSearchParams(window.location.search);
+  query.delete('token');
+  if (role) query.set('role', role);
+  return `${protocol}//${window.location.host}/ws?${query}`;
 }
 
-export function useConnection({ onOpen, onMessage }: Options) {
+export function useConnection({ onOpen, onMessage, role }: Options) {
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
 
   const socketRef = useRef<WebSocket | null>(null);
@@ -51,7 +55,7 @@ export function useConnection({ onOpen, onMessage }: Options) {
 
     const connect = () => {
       if (disposed) return;
-      const socket = new WebSocket(socketUrl());
+      const socket = new WebSocket(socketUrl(role));
       socketRef.current = socket;
       setStatus('connecting');
 
@@ -72,12 +76,18 @@ export function useConnection({ onOpen, onMessage }: Options) {
         onMessageRef.current?.(message);
       });
 
-      socket.addEventListener('close', () => {
+      socket.addEventListener('close', (event: CloseEvent) => {
         // 破棄済みの接続の後始末では、状態も再接続も触らない。
         // StrictMode は effect を 2 回走らせるため、1 回目の接続が
         // ここへ来た時点で 2 回目の接続が既に生きている。
         if (disposed || socketRef.current !== socket) return;
 
+        if (event.code === 4403 || event.code === 4404) {
+          setStatus('ended');
+          onMessageRef.current?.({ type: 'error', code: event.code === 4404 ? 'ended' : 'forbidden',
+            message: event.code === 4404 ? '大会は終了しました。' : '参加URLまたは主催者認証が無効です。' });
+          return;
+        }
         setStatus('closed');
 
         // 会場では一時的に切れることが普通に起きるので、諦めずに繋ぎ直す
@@ -109,7 +119,7 @@ export function useConnection({ onOpen, onMessage }: Options) {
         socket?.close();
       }
     };
-  }, [send]);
+  }, [send, role]);
 
   return { status, send };
 }

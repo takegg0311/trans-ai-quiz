@@ -1,3 +1,4 @@
+import { cloudRequest } from './cloud';
 /**
  * LLM 予測 API の呼び出し。
  *
@@ -131,7 +132,7 @@ export async function predict(
   const startedAt = performance.now();
 
   try {
-    const response = await fetch(`${BASE}/predict`, {
+    const response = await cloudRequest(`${BASE}/predict`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

@@ -83,6 +83,8 @@ type Props = {
 
 export function useAiPlayer({ send, roundId, questionId }: Props) {
   const [enabled, setEnabled] = useState(false);
+  const [answerPending, setAnswerPending] = useState(false);
+  const answerGenerationRef = useRef(0);
   const [readiness, setReadiness] = useState<AiReadiness>({
     jev: false,
     llm: false,
@@ -162,6 +164,8 @@ export function useAiPlayer({ send, roundId, questionId }: Props) {
 
   /** ラウンドが変わったら状態を捨てる */
   const reset = useCallback(() => {
+    answerGenerationRef.current += 1;
+    setAnswerPending(false);
     inFlightRef.current = false;
     lastSentRef.current = -1;
     pressedRef.current = false;
@@ -183,6 +187,9 @@ export function useAiPlayer({ send, roundId, questionId }: Props) {
    */
   const runAnswer = useCallback(
     (partialText: string, round: number, questionId: string) => {
+      const generation = ++answerGenerationRef.current;
+      setAnswerPending(true);
+      let completed = 0;
       const answers: (ModelAnswer | null)[] = OPPONENTS.map(() => null);
       /** 確定した合議。以降に届いた応答では書き換えない */
       let settled: Consensus | null = null;
@@ -190,6 +197,9 @@ export function useAiPlayer({ send, roundId, questionId }: Props) {
       OPPONENTS.forEach((opponent, index) => {
         void predict(opponent.vendor, opponent.model, partialText, false).then(
           (result: PredictResult) => {
+            if (generation !== answerGenerationRef.current) return;
+            completed += 1;
+            if (completed === OPPONENTS.length) setAnswerPending(false);
             // 次の問題へ進んだ後に届いた応答は捨てる
             if (roundRef.current !== round) return;
             if (questionId !== currentQuestionRef.current) return;
@@ -306,11 +316,13 @@ export function useAiPlayer({ send, roundId, questionId }: Props) {
 
   return {
     enabled,
+    answerPending,
     setEnabled,
     readiness,
     lastJudgement,
     feed,
     answer,
+    retryAnswer: (round: number, questionId: string, readText: string) => runAnswer(readText, round, questionId),
     reset,
     stop,
     refresh,

@@ -17,13 +17,14 @@ import { JoinPanel } from './JoinPanel';
 import { PlayerList } from './PlayerList';
 import { QuestionView } from './QuestionView';
 import { useQuestion } from './useQuestion';
+import { TournamentSettings } from './CloudGate';
 
 /** URL の ?token= から出題者用トークンを取る */
 function hostTokenFromUrl(): string {
   return new URLSearchParams(window.location.search).get('token') ?? '';
 }
 
-export function App() {
+export function App({ cloud = false, onEnded = () => {} }: { cloud?: boolean; onEnded?: () => void }) {
   const [state, setState] = useState<RoomStateMessage | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** 音声の再生位置。requestAnimationFrame で更新し、文字送りを駆動する */
@@ -126,6 +127,7 @@ export function App() {
     () => {},
   );
   /** 参加者一覧。buzz_accepted が AI のものかを見分けるため、最新値を ref に持つ */
+  const sendMessageRef = useRef<(message: ClientMessage) => void>(() => {});
   const playersRef = useRef<RoomStateMessage['players']>([]);
 
   const handleOpen = useCallback((send: (message: ClientMessage) => void) => {
@@ -136,6 +138,10 @@ export function App() {
     (message: ServerMessage) => {
       switch (message.type) {
         case 'room_state':
+          if (message.paused || message.buzzed !== null) {
+            freeze();
+            aiStopRef.current();
+          }
           playersRef.current = message.players;
           setState(message);
           break;
@@ -156,25 +162,41 @@ export function App() {
             (player) => player.id === message.player_id && player.is_ai,
           );
           if (isAi && frozen !== null) {
+            if (cloud) sendMessageRef.current({ type: 'ai_context', round_id: message.round_id, read_text: frozen.text });
             aiAnswerRef.current(message.round_id, frozen.questionId, frozen.text);
           }
           break;
         }
 
         case 'error':
+          if (message.code === 'ended' || (cloud && message.code === 'forbidden')) {
+            freeze();
+            aiStopRef.current();
+            onEnded();
+          }
           setError(message.message);
           break;
       }
     },
-    [freeze],
+    [freeze, cloud, onEnded],
   );
 
-  const { status, send } = useConnection({ onOpen: handleOpen, onMessage: handleMessage });
+  const { status, send } = useConnection({ onOpen: handleOpen, onMessage: handleMessage, role: cloud ? 'host' : undefined });
 
+  sendMessageRef.current = send;
+  const paused = state?.paused === true;
   const phase = state?.phase ?? 'idle';
   const roundId = state?.round_id ?? 0;
 
   const ai = useAiPlayer({ send, roundId, questionId: state?.question?.id ?? null });
+
+  useEffect(() => {
+    if (cloud && state?.ai_enabled !== undefined) ai.setEnabled(state.ai_enabled);
+  }, [cloud, state?.ai_enabled, ai.setEnabled]);
+
+  useEffect(() => {
+    if (status !== 'open') { freeze(); ai.stop(); }
+  }, [status, freeze, ai.stop]);
 
   /** 回答権を得ているのが AI か。AI の回答枠を出すかの判断に使う */
   const buzzedIsAi =
@@ -189,15 +211,16 @@ export function App() {
       ai.setEnabled(next);
       // 参加を外しても Player は消さない。投影の一覧から名前が消えると、
       // 途中まで居た AI の戦績が追えなくなる（人間の切断と同じ扱い）
-      if (next) send({ type: 'ai_join', name: 'AI' });
+      if (cloud) send({ type: 'ai_toggle', enabled: next });
+      else if (next) send({ type: 'ai_join', name: 'AI' });
     },
-    [ai, send],
+    [ai, send, cloud],
   );
 
   // 新しい問題が読み込まれたら、ジングルを鳴らしてから読み上げを始める
   const questionId = question?.id ?? null;
   useEffect(() => {
-    if (question === null || phase !== 'reading') return;
+    if (question === null || phase !== 'reading' || paused) return;
 
     const silent = question.audioUrl === null;
     const audio = audioRef.current;
@@ -245,11 +268,11 @@ export function App() {
     // questionId も依存に残すのは、出題直後はまだ .lab の取得中で
     // question が null のことがあり、その回の effect は何もせず抜けるため。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roundId, questionId, startSilentClock]);
+  }, [roundId, questionId, startSilentClock, paused]);
 
   // reading の間だけ再生位置を追い続ける
   useEffect(() => {
-    if (phase !== 'reading' || question === null) return;
+    if (phase !== 'reading' || question === null || paused) return;
 
     const audio = audioRef.current;
 
@@ -289,6 +312,7 @@ export function App() {
     };
   }, [
     phase,
+    paused,
     question,
     roundId,
     send,
@@ -299,7 +323,7 @@ export function App() {
 
   /** お手つき解除で reading へ戻ったら、続きから再生する */
   useEffect(() => {
-    if (phase !== 'reading') return;
+    if (phase !== 'reading' || paused) return;
     if (frozenLength === null) return;
 
     const loaded = questionRef.current;
@@ -320,7 +344,7 @@ export function App() {
     void audio.play().catch(() => undefined);
     // 解除のときだけ動かしたいので frozenLength は依存に含めない
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, roundId, resumeSilentClock, currentPosition]);
+  }, [phase, paused, roundId, resumeSilentClock, currentPosition]);
 
   /** 押されないまま読み切った */
   const handleAudioEnded = useCallback(() => {
@@ -378,7 +402,7 @@ export function App() {
   // 時間ではなく文字数の変化で駆動するのは、無音区間や長音で同じ文字列を
   // 繰り返し投げないため。送信の間引きは useAiPlayer が行う。
   useEffect(() => {
-    if (phase !== 'reading' || question === null) return;
+    if (phase !== 'reading' || question === null || paused) return;
 
     // **今の問題が今のラウンドのものかを確かめる。**
     // 新しいラウンドが始まった直後は、phase と roundId だけが先に更新され、
@@ -415,7 +439,7 @@ export function App() {
     ai.feed([...question.text].slice(0, heard).join(''), heard, question.id);
     // ai 全体を依存に置くと毎フレーム実行される。必要なのは feed だけ
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, question, currentTime, hasAlignment, currentPosition, state?.question?.id, ai.feed]);
+  }, [phase, paused, question, currentTime, hasAlignment, currentPosition, state?.question?.id, ai.feed]);
 
   // 読み切った後も早押しは締め切られない（締め切るのは出題者の time_up）。
   // 人間はこの間も押せるので、AI も押せないと対決として不公平になる。
@@ -424,7 +448,7 @@ export function App() {
   // そこへ AI が割り込むと考える間が無くなる。待ち時間は
   // AI_READING_ENDED_DELAY_MS で変えられる（0 なら読み切りと同時）。
   useEffect(() => {
-    if (phase !== 'readingEnded' || question === null) return;
+    if (phase !== 'readingEnded' || question === null || paused) return;
     if (state?.question?.id !== question.id) return;
 
     const timer = window.setTimeout(() => {
@@ -437,9 +461,9 @@ export function App() {
 
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, question, state?.question?.id, ai.feed, ai.readiness.readingEndedDelayMs]);
+  }, [phase, paused, question, state?.question?.id, ai.feed, ai.readiness.readingEndedDelayMs]);
 
-  if (hostToken.current === '') {
+  if (!cloud && hostToken.current === '') {
     return (
       <main className="host">
         <p className="host-error">
@@ -495,6 +519,7 @@ export function App() {
       </section>
 
       <aside className="host-side">
+        {cloud && <TournamentSettings onEnded={onEnded} />}
         <JoinPanel />
         <PlayerList players={state?.players ?? []} buzzedId={state?.buzzed?.player_id ?? null} />
 
@@ -509,7 +534,7 @@ export function App() {
       </aside>
 
       <footer className="host-controls">
-        <Controls
+        {paused ? <button className="control primary" disabled={status !== 'open'} onClick={() => send({ type: 'resume' })}>復元した大会を再開する</button> : <Controls
           phase={phase}
           connected={status === 'open'}
           onStart={handleStart}
@@ -518,7 +543,11 @@ export function App() {
           onJudge={handleJudge}
           onRelease={handleRelease}
           onNext={handleNext}
-        />
+        />}
+        {cloud && !paused && buzzedIsAi && state?.ai_answer == null && state?.ai_read_text &&
+          <button className="control" disabled={ai.answerPending || status !== 'open'} onClick={() => {
+            if (question) ai.retryAnswer(roundId, question.id, state.ai_read_text ?? '');
+          }}>AI回答を再実行</button>}
         {error !== null && <p className="host-error">{error}</p>}
       </footer>
 
