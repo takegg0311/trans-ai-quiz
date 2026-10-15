@@ -66,7 +66,7 @@ def unpack(data: bytes, target: Path) -> list[Question]:
                     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", row.get("batch") or ""):
                         raise QuizDataError("batch は英数字・ハイフン・アンダースコアで指定してください。")
             return load_questions(target)
-    except (zipfile.BadZipFile, UnicodeError, OSError, ValueError, RuntimeError) as error:
+    except (zipfile.BadZipFile, csv.Error, UnicodeError, OSError, ValueError, RuntimeError) as error:
         raise QuizDataError("ZIP または CSV を読み込めません。") from error
 
 

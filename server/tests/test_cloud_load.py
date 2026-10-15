@@ -70,7 +70,8 @@ def test_twenty_players_over_real_websockets():
                     assert sum(accepted for accepted, _ in results) == 1
                     print(f"20 players: max response {max(ms for _, ms in results):.1f} ms (in-memory storage)")
                     # 確定状態は回答者に問題データを漏らさない。
-                    final = await until(players[0][0], lambda v: v["type"] == "room_state" and v["phase"] == "buzzed")
+                    winner_socket = players[next(i for i, (accepted, _) in enumerate(results) if accepted)][0]
+                    final = await until(winner_socket, lambda v: v["type"] == "room_state" and v["phase"] == "buzzed")
                     assert final["question"] is None
                 finally:
                     await asyncio.gather(*(ws.close() for ws, _ in players))

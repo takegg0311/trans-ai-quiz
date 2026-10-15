@@ -77,6 +77,8 @@ def test_zip_paths_and_partial_audio():
             validate(data)
     with pytest.raises(QuizDataError):
         validate(b"not a zip")
+    with pytest.raises(QuizDataError):
+        validate(archive(batch="a" * 150000))
     info = zipfile.ZipInfo("symlink")
     info.external_attr = 0o120777 << 16
     with pytest.raises(QuizDataError):
