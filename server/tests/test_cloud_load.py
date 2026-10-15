@@ -1,6 +1,8 @@
 """実 TCP/WebSocket で20参加者が競合するローカル負荷検証。外部APIは呼ばない。"""
 from __future__ import annotations
 
+from typing import Any
+
 import asyncio
 import json
 import socket
@@ -16,7 +18,7 @@ from app.cloud.service import Settings
 from .test_cloud import MemoryObjects, MemoryStates, archive
 
 
-def test_twenty_players_over_real_websockets():
+def test_twenty_players_over_real_websockets() -> None:
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     port = listener.getsockname()[1]
@@ -39,14 +41,14 @@ def test_twenty_players_over_real_websockets():
             cookie = client.cookies.get("quiz_host")
             query = client.get('/api/room').json()["join_url"].split("?", 1)[1]
 
-        async def until(ws, predicate):
+        async def until(ws: Any, predicate: Any) -> Any:
             async with asyncio.timeout(5):
                 while True:
                     value = json.loads(await ws.recv())
                     if predicate(value):
                         return value
 
-        async def exercise():
+        async def exercise() -> Any:
             async with connect(f"ws://127.0.0.1:{port}/ws?role=host", origin=origin,
                                additional_headers={"Cookie": f"quiz_host={cookie}"}, max_queue=None, close_timeout=1) as host:
                 await host.send(json.dumps({"type": "host_hello"}))
@@ -60,7 +62,7 @@ def test_twenty_players_over_real_websockets():
                         players.append((ws, welcome["player_id"]))
                     await host.send(json.dumps({"type": "start_question"}))
                     state = await until(host, lambda v: v["type"] == "room_state" and v["phase"] == "reading")
-                    async def buzz(ws, player_id):
+                    async def buzz(ws: Any, player_id: Any) -> Any:
                         started = time.perf_counter()
                         await ws.send(json.dumps({"type": "buzz", "round_id": state["round_id"]}))
                         result = await until(ws, lambda v: v["type"] == "buzz_rejected" or

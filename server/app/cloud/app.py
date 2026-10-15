@@ -8,6 +8,8 @@ import mimetypes
 import os
 import tempfile
 from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -19,12 +21,13 @@ from ..jev.router import router as jev_router
 from ..llm.router import health as llm_health, predict as llm_predict
 from ..protocol import BuzzAcceptedMessage, BuzzRejectedMessage, ClientMessage, ErrorMessage, WelcomeMessage
 from ..quiz import REPO_ROOT, QuizDataError
+from ..room import Room
 from ..ws import ConnectionManager
 from .archive import MAX_ZIP_BYTES, unpack
 from .auth import COOKIE, check_origin, issue, session
 from .service import Settings, TournamentService, execute
 from .snapshot import load_room
-from .store import CloudStorageStore, FirestoreStore, IObjectStore, IStateStore
+from .store import CloudStorageStore, Document, FirestoreStore, IObjectStore, IStateStore
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +48,7 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
     asset_cache: dict[str, tempfile.TemporaryDirectory] = {}
     adapter = TypeAdapter(ClientMessage)
 
-    async def publish(value: dict) -> None:
+    async def publish(value: Document) -> None:
         room = load_room(value["room"], await asyncio.to_thread(service.questions, value))
         for socket in list(sockets):
             if sockets[socket] != value["id"]:
@@ -62,7 +65,7 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
             except (RuntimeError, WebSocketDisconnect):
                 pass
 
-    async def close_ended(value: dict | None) -> None:
+    async def close_ended(value: Document | None) -> None:
         for socket, event_id in list(sockets.items()):
             if (value and service.active(value) and event_id == value["id"]
                     and deadlines.get(socket, 0) > service.clock()):
@@ -108,7 +111,7 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
                 pass
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         nonlocal lock, changed
         lock = asyncio.Lock()
         changed = asyncio.Event()
@@ -129,7 +132,7 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
     app.state.service = service
 
     @app.middleware("http")
-    async def protect(request: Request, call_next):
+    async def protect(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         try:
             if request.url.path.startswith(("/api/", "/quiz_data/")):
                 if request.method not in ("GET", "HEAD"):
@@ -143,7 +146,7 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
         except HTTPException as error:
             return JSONResponse({"detail": error.detail}, status_code=error.status_code)
 
-    async def host(request: Request) -> dict:
+    async def host(request: Request) -> Document:
         credential = session(request, settings, service.clock())
         value = await asyncio.to_thread(service.read)
         return service.require(value, credential["event"])
@@ -153,7 +156,7 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
         if credential["event"] != "setup":
             raise HTTPException(403, "新しい大会を開始するには再認証してください。")
 
-    def set_cookie(response: Response, value: dict | None) -> None:
+    def set_cookie(response: Response, value: Document | None) -> None:
         event_id = value["id"] if service.active(value) else "setup"
         until = value["expires_at"] if service.active(value) else service.clock() + 600
         response.set_cookie(COOKIE, issue(settings, event_id, until), httponly=True,
@@ -161,19 +164,19 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
                             max_age=max(1, int(until - service.clock())), path="/")
 
     @app.exception_handler(QuizDataError)
-    async def invalid_quiz(request: Request, error: QuizDataError):
+    async def invalid_quiz(request: Request, error: QuizDataError) -> JSONResponse:
         return JSONResponse({"detail": str(error)}, status_code=422)
 
     @app.get("/api/health")
-    async def healthz():
+    async def healthz() -> dict[str, bool]:
         return {"ok": True}
 
     @app.get("/api/cloud")
-    async def cloud_info():
+    async def cloud_info() -> dict[str, object]:
         return {"cloud": True, "max_zip_bytes": MAX_ZIP_BYTES}
 
     @app.post("/api/session")
-    async def login(body: Login, request: Request, response: Response):
+    async def login(body: Login, request: Request, response: Response) -> dict[str, bool]:
         # Cloud Run の ingress 経路で付与された接続元を利用。任意の XFF は信用しない。
         address = request.client.host if request.client else "unknown"
         await asyncio.to_thread(service.check_password, body.password, address)
@@ -182,12 +185,12 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
         return {"active": service.active(value)}
 
     @app.get("/api/session")
-    async def session_info(request: Request):
+    async def session_info(request: Request) -> dict[str, object]:
         value = await host(request)
         return {"active": True, "id": value["id"], "expires_at": value["expires_at"]}
 
     @app.post("/api/tournament", dependencies=[Depends(setup)])
-    async def start(request: Request, response: Response, hours: float = 24):
+    async def start(request: Request, response: Response, hours: float = 24) -> dict[str, object]:
         data = bytearray()
         async for chunk in request.stream():
             if len(data) + len(chunk) > MAX_ZIP_BYTES:
@@ -200,7 +203,7 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
         return {"id": value["id"], "expires_at": value["expires_at"]}
 
     @app.post("/api/tournament/end")
-    async def end(request: Request, response: Response):
+    async def end(request: Request, response: Response) -> dict[str, bool]:
         value = await host(request)
         async with lock:
             ended = await asyncio.to_thread(service.end, value["id"])
@@ -209,14 +212,14 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
         return {"ended": True}
 
     @app.get("/api/room")
-    async def room_info(request: Request):
+    async def room_info(request: Request) -> dict[str, object]:
         value = await host(request)
         questions = await asyncio.to_thread(service.questions, value)
         return {"join_url": f"{settings.public_url.rstrip('/')}/player?event={value['id']}&key={value['join_key']}",
                 "question_count": len(questions), "expires_at": value["expires_at"]}
 
     @app.get("/api/questions")
-    async def questions(request: Request):
+    async def questions(request: Request) -> list[dict[str, object]]:
         value = await host(request)
         items = await asyncio.to_thread(service.questions, value)
         return [{"id": q.id, "text": q.text, "answers": q.answers,
@@ -224,7 +227,7 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
                  "batch": q.batch, "seq": q.seq} for q in items]
 
     @app.get("/quiz_data/{path:path}")
-    async def quiz_file(path: str, request: Request):
+    async def quiz_file(path: str, request: Request) -> FileResponse:
         value = await host(request)
         event_id = value["id"]
         # 音声/LAB のみ配信。CSV・txt等の一括取得口は設けない。
@@ -254,7 +257,7 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
     app.include_router(jev_router, dependencies=[Depends(host)])
 
     @app.websocket("/ws")
-    async def websocket(socket: WebSocket):
+    async def websocket(socket: WebSocket) -> None:
         player_id: str | None = None
         connection_id = os.urandom(16).hex()
         event_id = ""
@@ -285,7 +288,7 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
                     if message.type == "host_hello" and not is_host:
                         raise HTTPException(403, "主催者認証が必要です。")
                     async with lock:
-                        def operation(room, document):
+                        def operation(room: Room, document: Document) -> Any:
                             if player_id and message.type == "buzz":
                                 if document.get("connections", {}).get(player_id) != connection_id:
                                     raise HTTPException(403, "新しい接続へ切り替わっています。")
@@ -338,7 +341,7 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
                     manager.players.pop(player_id, None)
                 try:
                     async with lock:
-                        def disconnect(room, document):
+                        def disconnect(room: Room, document: Document) -> None:
                             if document.get("connections", {}).get(player_id) == connection_id:
                                 room.disconnect(player_id)
                         value, _ = await asyncio.to_thread(service.change, event_id, disconnect)
@@ -350,11 +353,11 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
     if dist.is_dir():
         @app.get("/")
         @app.get("/host")
-        async def host_page():
+        async def host_page() -> FileResponse:
             return FileResponse(dist / "host.html")
 
         @app.get("/player")
-        async def player_page():
+        async def player_page() -> FileResponse:
             return FileResponse(dist / "player.html")
 
         # 静的配信はビルド資産のみに限定し、別の HTML への迂回を作らない。

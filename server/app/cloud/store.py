@@ -24,7 +24,7 @@ class FirestoreStore:
     def read(self, key: str) -> Document | None:
         return self._collection.document(key).get(timeout=10).to_dict()
 
-    def watch(self, key: str, notify: Callable[[], None]):
+    def watch(self, key: str, notify: Callable[[], None]) -> Any:
         # Firestore の監視スレッドからイベントループへ更新を通知する。
         return self._collection.document(key).on_snapshot(lambda *_: notify())
 
@@ -32,7 +32,7 @@ class FirestoreStore:
         ref = self._collection.document(key)
 
         @self._firestore.transactional
-        def commit(transaction):
+        def commit(transaction: Any) -> T:
             previous = ref.get(transaction=transaction).to_dict()
             value, result = change(copy.deepcopy(previous))
             if value != previous:

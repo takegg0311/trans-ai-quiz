@@ -1,6 +1,8 @@
 """外部保存境界を共有する複数プロセス相当の開催テスト。"""
 from __future__ import annotations
 
+from typing import Any
+
 import copy
 import io
 import json
@@ -21,16 +23,16 @@ from app.quiz import QuizDataError
 
 
 class MemoryStates:
-    def __init__(self):
+    def __init__(self) -> None:
         self.values = {}
         self.lock = threading.Lock()
         self.fail = False
 
-    def read(self, key):
+    def read(self, key: Any) -> Any:
         with self.lock:
             return copy.deepcopy(self.values.get(key))
 
-    def update(self, key, change):
+    def update(self, key: Any, change: Any) -> Any:
         with self.lock:
             value, result = change(copy.deepcopy(self.values.get(key)))
             if self.fail:
@@ -40,20 +42,20 @@ class MemoryStates:
 
 
 class MemoryObjects:
-    def __init__(self):
+    def __init__(self) -> None:
         self.values = {}
 
-    def put(self, key, data):
+    def put(self, key: Any, data: Any) -> Any:
         self.values[key] = data
 
-    def get(self, key):
+    def get(self, key: Any) -> Any:
         return self.values[key]
 
-    def delete(self, key):
+    def delete(self, key: Any) -> Any:
         self.values.pop(key, None)
 
 
-def archive(batch="csvonly", files=None):
+def archive(batch: Any="csvonly", files: Any=None) -> Any:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as output:
         output.writestr("questions.csv", f"batch,seq,text,answer,alt_answers\n{batch},0,問題です,答え,\n{batch},1,次の問題,次の答え,\n")
@@ -63,13 +65,13 @@ def archive(batch="csvonly", files=None):
 
 
 @pytest.fixture
-def environment():
+def environment() -> Any:
     settings = Settings("password", "s" * 32, "https://quiz.example")
     states, objects = MemoryStates(), MemoryObjects()
     return settings, states, objects
 
 
-def test_zip_paths_and_partial_audio():
+def test_zip_paths_and_partial_audio() -> None:
     assert len(validate(archive())) == 2
     for data in [archive("../outside"), archive(files={"../escape": "x"}),
                  archive(files={"/absolute": "x"}), archive(files={"csvonly/0-csvonly.wav": "x"})]:
@@ -85,7 +87,7 @@ def test_zip_paths_and_partial_audio():
         validate(archive(files={info: "questions.csv"}))
 
 
-def test_atomic_start_restore_and_failed_save(environment):
+def test_atomic_start_restore_and_failed_save(environment: Any) -> None:
     settings, states, objects = environment
     now = [1000.0]
     first = TournamentService(settings, states, objects, lambda: now[0])
@@ -95,7 +97,7 @@ def test_atomic_start_restore_and_failed_save(environment):
         second.start(archive(), 24)
     assert error.value.status_code == 409
     assert len(objects.values) == 1
-    def prepare(room, value):
+    def prepare(room: Any, value: Any) -> Any:
         room.join("one", None)
         room.join("two", None)
         room.join_ai("AI")
@@ -119,17 +121,17 @@ def test_atomic_start_restore_and_failed_save(environment):
     assert second.read() == restored
 
 
-def test_competing_buzz_and_stale_ai(environment):
+def test_competing_buzz_and_stale_ai(environment: Any) -> None:
     settings, states, objects = environment
     first = TournamentService(settings, states, objects)
     second = TournamentService(settings, states, objects)
     event = first.start(archive(), 24)
-    def prepare(room, value):
+    def prepare(room: Any, value: Any) -> Any:
         room.join("one", None)
         room.join("two", None)
         room.start_question()
     first.change(event["id"], prepare)
-    def buzz(service, player):
+    def buzz(service: Any, player: Any) -> Any:
         return service.change(event["id"], lambda room, value: execute(
             room, value, SimpleNamespace(type="buzz", round_id=1), player, False))[1].accepted
     with ThreadPoolExecutor() as pool:
@@ -138,7 +140,7 @@ def test_competing_buzz_and_stale_ai(environment):
     assert first.read()["room"]["phase"] == "buzzed"
 
 
-def test_end_expiry_and_auth_rate(environment):
+def test_end_expiry_and_auth_rate(environment: Any) -> None:
     settings, states, objects = environment
     now = [1000.0]
     service = TournamentService(settings, states, objects, lambda: now[0])
@@ -159,7 +161,7 @@ def test_end_expiry_and_auth_rate(environment):
     service.check_password("password", "address")
 
 
-def test_http_authorization_and_lifecycle(environment):
+def test_http_authorization_and_lifecycle(environment: Any) -> None:
     settings, states, objects = environment
     app = create_app(settings, states, objects)
     headers = {"Origin": settings.public_url, "X-Quiz-Request": "1"}
@@ -205,13 +207,13 @@ def test_http_authorization_and_lifecycle(environment):
             assert anonymous.get(path).status_code == 401
 
 
-def test_ai_context_and_confirmed_answer_survive_takeover(environment):
+def test_ai_context_and_confirmed_answer_survive_takeover(environment: Any) -> None:
     settings, states, objects = environment
     now = [1000.0]
     first = TournamentService(settings, states, objects, lambda: now[0])
     second = TournamentService(settings, states, objects, lambda: now[0])
     event = first.start(archive(), 24)
-    def command(service, **fields):
+    def command(service: Any, **fields: Any) -> Any:
         return service.change(event["id"], lambda room, value: execute(room, value, SimpleNamespace(**fields), None, True))
     command(first, type="ai_toggle", enabled=True)
     command(first, type="start_question", question_id="csvonly/0")
@@ -239,7 +241,7 @@ def test_ai_context_and_confirmed_answer_survive_takeover(environment):
     assert finished["paused"] is False
 
 
-def test_session_is_bound_to_event_and_origin(environment):
+def test_session_is_bound_to_event_and_origin(environment: Any) -> None:
     settings, states, objects = environment
     app = create_app(settings, states, objects)
     headers = {"Origin": settings.public_url, "X-Quiz-Request": "1"}
@@ -266,15 +268,15 @@ def test_session_is_bound_to_event_and_origin(environment):
         assert error.value.code == 4404
 
 
-def test_firestore_adapter_saves_mutations_and_skips_unchanged_values():
+def test_firestore_adapter_saves_mutations_and_skips_unchanged_values() -> None:
     from app.cloud.store import FirestoreStore
     value = {"count": 1}
     writes = []
     class Reference:
-        def get(self, transaction=None):
+        def get(self, transaction: Any=None) -> Any:
             return SimpleNamespace(to_dict=lambda: copy.deepcopy(value))
     class Transaction:
-        def set(self, ref, updated):
+        def set(self, ref: Any, updated: Any) -> Any:
             value.clear()
             value.update(copy.deepcopy(updated))
             writes.append(copy.deepcopy(updated))
@@ -282,7 +284,7 @@ def test_firestore_adapter_saves_mutations_and_skips_unchanged_values():
     store._collection = SimpleNamespace(document=lambda key: Reference())
     store._client = SimpleNamespace(transaction=lambda **kwargs: Transaction())
     store._firestore = SimpleNamespace(transactional=lambda operation: operation)
-    def increment(previous):
+    def increment(previous: Any) -> Any:
         previous['count'] += 1
         return previous, previous['count']
     assert store.update('auth-test', increment) == 2
@@ -291,7 +293,7 @@ def test_firestore_adapter_saves_mutations_and_skips_unchanged_values():
     assert len(writes) == 1
 
 
-def test_authenticated_audio_delivery_and_expired_socket(environment):
+def test_authenticated_audio_delivery_and_expired_socket(environment: Any) -> None:
     settings, states, objects = environment
     app = create_app(settings, states, objects)
     headers = {"Origin": settings.public_url, "X-Quiz-Request": "1"}
@@ -324,12 +326,12 @@ def test_authenticated_audio_delivery_and_expired_socket(environment):
         assert client.get('/quiz_data/csvonly/0-csvonly.wav').status_code == 401
 
 
-def test_new_host_takes_over_while_previous_revision_is_alive(environment):
+def test_new_host_takes_over_while_previous_revision_is_alive(environment: Any) -> None:
     settings, states, objects = environment
     first = TournamentService(settings, states, objects)
     second = TournamentService(settings, states, objects)
     event = first.start(archive(), 24)
-    def prepare(room, value):
+    def prepare(room: Any, value: Any) -> Any:
         room.join('参加者', None)
         room.start_question()
         room.buzz('p_1', room.round_id)
