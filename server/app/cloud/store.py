@@ -1,6 +1,7 @@
 """外部保存の境界。トランザクションのコールバックは再実行可能な同期処理。"""
 from __future__ import annotations
 
+import copy
 from collections.abc import Callable
 from typing import Any, Protocol, TypeVar
 
@@ -32,8 +33,10 @@ class FirestoreStore:
 
         @self._firestore.transactional
         def commit(transaction):
-            value, result = change(ref.get(transaction=transaction).to_dict())
-            transaction.set(ref, value)
+            previous = ref.get(transaction=transaction).to_dict()
+            value, result = change(copy.deepcopy(previous))
+            if value != previous:
+                transaction.set(ref, value)
             return result
 
         return commit(self._client.transaction(max_attempts=5))

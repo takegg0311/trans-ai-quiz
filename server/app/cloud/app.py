@@ -164,7 +164,7 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
     async def invalid_quiz(request: Request, error: QuizDataError):
         return JSONResponse({"detail": str(error)}, status_code=422)
 
-    @app.get("/healthz")
+    @app.get("/api/health")
     async def healthz():
         return {"ok": True}
 

@@ -14,7 +14,7 @@ from fastapi import HTTPException
 
 from ..protocol import AiAnswerView
 from ..quiz import Question
-from ..room import Room
+from ..room import BuzzResult, Room
 from .archive import validate
 from .snapshot import dump_room, load_room
 from .store import Document, IObjectStore, IStateStore
@@ -105,14 +105,20 @@ class TournamentService:
         return result
 
     def change(self, event_id: str, operation: Callable[[Room, Document], T]) -> tuple[Document, T]:
-        initial = self.require(self.read(), event_id)
-        questions = self.questions(initial)
+        # 認可・期限は必ず下のトランザクションで検証する。問題セットだけは不変。
+        questions = self._questions.get(event_id)
+        if questions is None:
+            initial = self.require(self.read(), event_id)
+            questions = self.questions(initial)
 
         def apply(current: Document | None) -> tuple[Document, tuple[Document, T]]:
             value = copy.deepcopy(self.require(current, event_id))
             self._take_over(value)
             room = load_room(value["room"], questions)
             result = operation(room, value)
+            if isinstance(result, BuzzResult) and not result.accepted:
+                # 押し負けは状態を変えない。20人競合時の不要な保存・配信を避ける。
+                return current, (current, result)
             value["room"] = dump_room(room)
             value["version"] += 1
             if len(json.dumps(value, ensure_ascii=False).encode()) > MAX_STATE_BYTES:

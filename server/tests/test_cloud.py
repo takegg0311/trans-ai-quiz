@@ -262,3 +262,28 @@ def test_session_is_bound_to_event_and_origin(environment):
                                           headers={"origin": settings.public_url}):
                 pass
         assert error.value.code == 4404
+
+
+def test_firestore_adapter_saves_mutations_and_skips_unchanged_values():
+    from app.cloud.store import FirestoreStore
+    value = {"count": 1}
+    writes = []
+    class Reference:
+        def get(self, transaction=None):
+            return SimpleNamespace(to_dict=lambda: copy.deepcopy(value))
+    class Transaction:
+        def set(self, ref, updated):
+            value.clear()
+            value.update(copy.deepcopy(updated))
+            writes.append(copy.deepcopy(updated))
+    store = FirestoreStore.__new__(FirestoreStore)
+    store._collection = SimpleNamespace(document=lambda key: Reference())
+    store._client = SimpleNamespace(transaction=lambda **kwargs: Transaction())
+    store._firestore = SimpleNamespace(transactional=lambda operation: operation)
+    def increment(previous):
+        previous['count'] += 1
+        return previous, previous['count']
+    assert store.update('auth-test', increment) == 2
+    assert writes == [{"count": 2}]
+    assert store.update('auth-test', lambda previous: (previous, 'unchanged')) == 'unchanged'
+    assert len(writes) == 1
