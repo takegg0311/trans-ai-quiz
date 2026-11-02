@@ -12,6 +12,8 @@ dependencies = [
     "anthropic>=0.69",
     "google-genai>=1.0",
     "httpx>=0.28",
+    "google-cloud-firestore>=2.21,<3",
+    "google-cloud-storage>=3,<4",
 ]
 
 [dependency-groups]

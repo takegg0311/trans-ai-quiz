@@ -647,3 +647,12 @@ body {
 .ai-continuation-predicted {
   font-weight: 700;
 }
+
+.cloud-entry { max-width: 36rem; margin: 4rem auto; padding: 1.5rem; }
+.cloud-entry form, .cloud-entry label { display: grid; gap: .6rem; }
+.cloud-entry form { gap: 1.4rem; }
+.cloud-entry input { font: inherit; padding: .65rem; max-width: 100%; }
+.cloud-entry p { line-height: 1.7; }
+.cloud-overlay { position: fixed; inset: 0; background: #000a; z-index: 50; display: grid; place-items: center; padding: 1rem; }
+.cloud-dialog { background: #182033; color: white; border: 1px solid #64748b; border-radius: .75rem; max-width: 34rem; padding: 2rem; }
+.cloud-dialog .control { margin: .5rem; }

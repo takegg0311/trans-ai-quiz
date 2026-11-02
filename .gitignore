@@ -5,7 +5,9 @@ dist/
 
 # 出題データとジングル SE は各自ローカルに配置する（リポジトリには含めない）。
 # PoC とオンライン版で共有するため、リポジトリルートに置いている。
+# デプロイ時は .gcloudignore 経由で手元の sound/*.WAV が Cloud Build に載る（Git 追跡は不要）。
 sound/*
+!sound/.gitkeep
 quiz_data/*
 
 # ただしデータ形式のサンプルとして 1 問だけ追跡する。
@@ -23,6 +25,10 @@ quiz_data/manifest.json
 
 # API キー。.env.example をコピーして各自で用意する
 server/.env
+
+# Cloud Run 配備。deploy/.env.example をコピーして各自で用意する
+deploy/.env
+deploy/cloud-run.yaml
 
 # llm-poc の実験結果。手元で貯まるものでリポジトリには含めない
 llm-poc/logs/

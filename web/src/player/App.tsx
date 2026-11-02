@@ -17,7 +17,8 @@ import { BuzzButton } from './BuzzButton';
 import { NameForm } from './NameForm';
 
 /** リロードしても同じ参加者として復帰するために保存する */
-const TOKEN_KEY = 'trans-ai-quiz.player-token';
+const EVENT_ID = new URLSearchParams(window.location.search).get('event');
+const TOKEN_KEY = `trans-ai-quiz.player-token${EVENT_ID ? `.${EVENT_ID}` : ''}`;
 const NAME_KEY = 'trans-ai-quiz.player-name';
 
 export function App() {
@@ -25,6 +26,7 @@ export function App() {
   const [joined, setJoined] = useState(() => localStorage.getItem(TOKEN_KEY) !== null);
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [state, setState] = useState<RoomStateMessage | null>(null);
+  const [ended, setEnded] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   // 送信直後の見た目を先に変えるため、サーバの応答を待たずに落とす
@@ -65,6 +67,7 @@ export function App() {
         break;
 
       case 'error':
+        if (message.code === 'ended' || message.code === 'forbidden') setEnded(true);
         setNotice(message.message);
         break;
     }
@@ -101,6 +104,8 @@ export function App() {
     });
   }, [send, state]);
 
+  if (ended) return <main className="player"><p role="alert">{notice ?? '大会は終了しました。'}</p></main>;
+
   if (!joined) {
     return (
       <main className="player">
@@ -114,6 +119,7 @@ export function App() {
   const hasAnswerRight = state?.buzzed?.player_id === playerId;
   const canBuzz =
     status === 'open' &&
+    state?.paused !== true &&
     state !== null &&
     // 読み切った後（readingEnded）も締め切られるまで押せる。
     // サーバ側の Room.buzz が受け付ける phase と揃えること

@@ -1,3 +1,4 @@
+import { cloudRequest } from './cloud';
 /**
  * Jev 判定 API の呼び出し。
  *
@@ -89,7 +90,7 @@ export async function judge(partialText: string): Promise<JudgeResult> {
   const startedAt = performance.now();
 
   try {
-    const response = await fetch(`${BASE}/judge`, {
+    const response = await cloudRequest(`${BASE}/judge`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ partial_text: partialText }),
