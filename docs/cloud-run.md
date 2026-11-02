@@ -71,15 +71,19 @@ WebSocketの60分タイムアウトによる通常再接続では同一参加者
 
 ## インフラとデプロイ
 
-`deploy/cloud-run.yaml` は今回の検証環境の設定例。別環境ではプロジェクト・SA・バケット・公開URL・イメージを変更し、Secretのバージョンを固定する。
+環境ごとの値は `deploy/.env` に置く（`deploy/.env.example` をコピーして埋める。Git には含めない）。`deploy/cloud-run.yaml.tpl` を `deploy/render-cloud-run.sh` が envsubst で展開し、生成物 `deploy/cloud-run.yaml` も Git 管理外とする。Secret のバージョン（`key`）はテンプレート側で固定する。
 
-| リソース | 値 |
+| 変数 (`deploy/.env`) | 内容 |
 | --- | --- |
-| プロジェクト | `${GCP_PROJECT}` |
-| リージョン | `asia-northeast1` |
-| サービス / Firestore DB | `trans-ai-quiz` |
-| バケット | `${QUIZ_BUCKET}` |
-| 実行SA | `${RUN_SERVICE_ACCOUNT}` |
+| `GCP_PROJECT` | GCP プロジェクト ID |
+| `GCP_REGION` | リージョン（例: `asia-northeast1`） |
+| `CLOUD_RUN_SERVICE` | Cloud Run サービス名 |
+| `RUN_SERVICE_ACCOUNT` | 実行用サービスアカウントのメール |
+| `CONTAINER_IMAGE` / `IMAGE_TAG` | デプロイするコンテナイメージ URI |
+| `QUIZ_PUBLIC_URL` | 公開 HTTPS オリジン（末尾スラッシュなし） |
+| `QUIZ_BUCKET` | 問題 ZIP の非公開バケット名 |
+| `QUIZ_DATABASE` | Firestore データベース名 |
+| `QUIZ_COLLECTION` | Firestore コレクション名 |
 
 実行SAへ付与する権限:
 
@@ -91,25 +95,30 @@ WebSocketの60分タイムアウトによる通常再接続では同一参加者
 Cloud Buildへ送るファイルは `.gcloudignore`、コンテナのビルド対象は `.dockerignore` で限定する。送信前に `gcloud meta list-files-for-upload` で `.env`・問題データ・PoCソース・ローカル依存が含まれないことを確認する。
 
 ```bash
-gcloud builds submit --project ${GCP_PROJECT} --region asia-northeast1 \
-  --config deploy/cloudbuild.yaml \
-  --substitutions=_IMAGE=asia-northeast1-docker.pkg.dev/${GCP_PROJECT}/cloud-run-source-deploy/trans-ai-quiz:TAG .
+cp deploy/.env.example deploy/.env
+# deploy/.env を編集する
+
+./deploy/submit-build.sh .
+./deploy/render-cloud-run.sh
+./deploy/replace-cloud-run.sh
 ```
 
-`deploy/cloud-run.yaml` のイメージを更新して `gcloud run services replace` で適用する。初回はサービスのHTTPS URLを確定後に `QUIZ_PUBLIC_URL` を合わせる。独自ドメインを使う場合も、開くオリジンと設定を一致させる。`/api/health` が200になることを確認する。コンテナは非rootで起動し、アクセスログは出さず、キー・Cookie・参加URLをアプリログに記録しない。
+`IMAGE_TAG` だけ変えて再デプロイする場合は `deploy/.env` の `CONTAINER_IMAGE` を空にし、`IMAGE_TAG` を更新してから上記の render / replace を実行する。初回はサービスの HTTPS URL を確定後に `QUIZ_PUBLIC_URL` を合わせる。独自ドメインを使う場合も、開くオリジンと設定を一致させる。`/api/health` が 200 になることを確認する。コンテナは非 root で起動し、アクセスログは出さず、キー・Cookie・参加 URL をアプリログに記録しない。
 
 バケット保持設定:
 
 ```bash
-gcloud storage buckets update gs://${QUIZ_BUCKET} \
+source deploy/gcloud-env.sh
+gcloud storage buckets update "gs://${QUIZ_BUCKET}" \
   --lifecycle-file=deploy/storage-lifecycle.json --soft-delete-duration=7d
 ```
 
 通常運用で大会中のデプロイは避ける。ロールバックは、前の互換性のあるリビジョンへトラフィックを100%戻す。保存形式が変わる更新では互換性を別途確認する。
 
 ```bash
-gcloud run services update-traffic trans-ai-quiz --project ${GCP_PROJECT} \
-  --region asia-northeast1 --to-revisions=PREVIOUS_REVISION=100
+source deploy/gcloud-env.sh
+gcloud run services update-traffic "$CLOUD_RUN_SERVICE" --project "$GCP_PROJECT" \
+  --region "$GCP_REGION" --to-revisions=PREVIOUS_REVISION=100
 ```
 
 ## 検証
@@ -132,10 +141,11 @@ Cloud Runには末尾が `z` の予約パスがあるため、公開ヘルスチ
 公開環境の検証専用大会を作る場合:
 
 ```bash
+source deploy/gcloud-env.sh
 server/.venv/bin/python server/scripts/verify_cloud_run.py \
-  --url ${QUIZ_PUBLIC_URL} \
+  --url "$QUIZ_PUBLIC_URL" \
   --password-file /path/to/private/password.txt \
-  --ai --restart-project ${GCP_PROJECT}
+  --ai --restart-project "$GCP_PROJECT"
 ```
 
 `--ai` は各社への実API呼出しを行う。`--restart-project` は指定プロジェクトの `trans-ai-quiz` を新リビジョンへ更新する。運用中の大会がある場合は中止し、検証専用大会だけを終了する。主催者パスワードや参加URLは表示しない。
