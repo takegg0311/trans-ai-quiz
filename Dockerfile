@@ -22,6 +22,8 @@ COPY server/app/ app/
 COPY --from=web-build /src/web/dist/ /app/web/dist/
 # SE は任意。問題・秘密・実験結果はイメージに含めない。
 COPY sound/ /app/sound/
+# 手元の WAV が 700 だと COPY 後も非 root の実行ユーザーが読めず /sound が 502 になる。
+RUN chmod -R a+rX /app/sound
 RUN useradd --uid 10001 --create-home quiz
 USER quiz
 ENV PORT=8080

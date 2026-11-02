@@ -9,6 +9,7 @@
 - `web` のみをビルド・配信する。PoC は package.json だけを依存解決に使い、ソースは送信・ビルド・配信しない。
 - Firestore の名前付きデータベースに大会状態、非公開 Cloud Storage に問題 ZIP を保存する。ブラウザから Firestore やバケットへ直接アクセスしない。
 - Cloud Run と Firestore は同じリージョンに置く。最大1インスタンス、1ワーカー、同時リクエスト80、タイムアウト3600秒、最小0インスタンスを初期設定とする。
+- ジングル SE はリポジトリルートの `sound/`（`set.WAV` / `buzz.WAV` / `correct.WAV` / `wrong.WAV`）をコンテナに同梱し、出題者画面だけが `/sound` 経由で再生する。`.gcloudignore` と `.dockerignore` で `sound/` を送信・COPY 対象に含めるため、Git 未追跡でも手元に置いた WAV は Cloud Build に載る。未配置でもアプリは動くが、SE は鳴らない。イメージは非 root ユーザーで動くため、Dockerfile で `sound/` を world-readable にしている（手元が `chmod 700` でもビルド後に読める）。
 
 ## 必須設定
 
@@ -92,7 +93,7 @@ WebSocketの60分タイムアウトによる通常再接続では同一参加者
 - `roles/secretmanager.secretAccessor`: 使用するSecretごと。プロジェクト全体への付与は避ける。
 - Cloud Runの呼出しは公開し、主催者・参加者の権限はアプリが確認する。Firestore Security Rulesでクライアント向け公開を許可しない。
 
-Cloud Buildへ送るファイルは `.gcloudignore`、コンテナのビルド対象は `.dockerignore` で限定する。送信前に `gcloud meta list-files-for-upload` で `.env`・問題データ・PoCソース・ローカル依存が含まれないことを確認する。
+Cloud Buildへ送るファイルは `.gcloudignore`、コンテナのビルド対象は `.dockerignore` で限定する。送信前に `gcloud meta list-files-for-upload` で `.env`・問題データ・PoCソース・ローカル依存が含まれないこと、および `sound/*.WAV` が載ることを確認する。`./deploy/submit-build.sh` はデフォルトで 4 つのジングルが揃っていることを要求する（`deploy/.env` の `QUIZ_DEPLOY_REQUIRE_SOUND=0` で緩和できる）。
 
 ```bash
 cp deploy/.env.example deploy/.env

@@ -5,6 +5,7 @@ dist/
 
 # 出題データとジングル SE は各自ローカルに配置する（リポジトリには含めない）。
 # PoC とオンライン版で共有するため、リポジトリルートに置いている。
+# デプロイ時は .gcloudignore 経由で手元の sound/*.WAV が Cloud Build に載る（Git 追跡は不要）。
 sound/*
 !sound/.gitkeep
 quiz_data/*
