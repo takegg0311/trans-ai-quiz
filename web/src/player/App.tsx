@@ -134,14 +134,17 @@ export function App() {
         {status !== 'open' && <span className="player-status">接続中…</span>}
       </header>
 
-      {hasAnswerRight ? (
-        <section className="answer-right" aria-live="assertive">
-          <p className="answer-right-label">回答権</p>
-          <p className="answer-right-note">答えを声で伝えてください</p>
-        </section>
-      ) : (
-        <BuzzButton disabled={!canBuzz} onBuzz={handleBuzz} />
-      )}
+      {/* 残り高さを占める領域の中央に置く。通知は外に出し、出てもボタン位置が大きく動かないようにする */}
+      <div className="player-stage">
+        {hasAnswerRight ? (
+          <section className="answer-right" aria-live="assertive">
+            <p className="answer-right-label">回答権</p>
+            <p className="answer-right-note">答えを声で伝えてください</p>
+          </section>
+        ) : (
+          <BuzzButton disabled={!canBuzz} onBuzz={handleBuzz} />
+        )}
+      </div>
 
       {state?.buzzed != null && !hasAnswerRight && (
         <p className="notice" aria-live="polite">

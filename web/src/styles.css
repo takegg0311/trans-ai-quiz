@@ -71,8 +71,18 @@ body {
   font-size: 0.85rem;
 }
 
-.buzz-button {
+/* ヘッダと通知の間の残り高さを占め、早押し／回答権をその中央に置く */
+.player-stage {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 0;
+}
+
+.buzz-button {
   width: min(100%, 22rem);
   border: none;
   border-radius: 50%;
@@ -106,7 +116,6 @@ body {
 
 .answer-right {
   display: flex;
-  flex: 1;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -115,6 +124,7 @@ body {
   border: 3px solid var(--accent);
   border-radius: 1rem;
   background: rgba(227, 179, 65, 0.12);
+  padding: 2rem 1.5rem;
 }
 
 .answer-right-label {
