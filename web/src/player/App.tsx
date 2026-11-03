@@ -15,6 +15,7 @@ import {
 } from '../protocol';
 import { BuzzButton } from './BuzzButton';
 import { NameForm } from './NameForm';
+import { RenameButton } from './RenameButton';
 
 /** リロードしても同じ参加者として復帰するために保存する */
 const EVENT_ID = new URLSearchParams(window.location.search).get('event');
@@ -28,6 +29,7 @@ export function App() {
   const [state, setState] = useState<RoomStateMessage | null>(null);
   const [ended, setEnded] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState(false);
 
   // 送信直後の見た目を先に変えるため、サーバの応答を待たずに落とす
   const [pressed, setPressed] = useState(false);
@@ -50,6 +52,7 @@ export function App() {
         localStorage.setItem(NAME_KEY, nameRef.current);
         setPlayerId(message.player_id);
         setJoined(true);
+        setEditingName(false);
         break;
 
       case 'room_state':
@@ -87,6 +90,7 @@ export function App() {
 
   const handleSubmitName = useCallback(
     (input: string) => {
+      // welcome 到着前に再レンダーが走っても nameRef が古い名前に戻らないよう、両方更新する
       setName(input);
       nameRef.current = input;
       send({ type: 'join', name: input, token: localStorage.getItem(TOKEN_KEY) });
@@ -127,12 +131,32 @@ export function App() {
     !pressed &&
     me?.locked_out !== true;
 
+  if (editingName) {
+    return (
+      <main className="player">
+        <NameForm
+          // ヘッダの表示名（連番付き）ではなく、参加時に送った名前を初期値にする
+          key={name}
+          defaultValue={name}
+          disabled={status !== 'open'}
+          submitLabel="変更する"
+          onSubmit={handleSubmitName}
+          onCancel={() => setEditingName(false)}
+        />
+        {status !== 'open' && <p className="notice">サーバに接続しています…</p>}
+        {notice !== null && <p className="notice">{notice}</p>}
+      </main>
+    );
+  }
+
   return (
     <main className="player">
       <header className="player-header">
         <span className="player-name">{me?.name ?? name}</span>
         {status !== 'open' && <span className="player-status">接続中…</span>}
       </header>
+
+      <RenameButton onClick={() => setEditingName(true)} />
 
       {/* 残り高さを占める領域の中央に置く。通知は外に出し、出てもボタン位置が大きく動かないようにする */}
       <div className="player-stage">
