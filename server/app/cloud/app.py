@@ -22,6 +22,7 @@ from ..llm.router import health as llm_health, predict as llm_predict
 from ..protocol import BuzzAcceptedMessage, BuzzRejectedMessage, ClientMessage, ErrorMessage, WelcomeMessage
 from ..quiz import REPO_ROOT, QuizDataError
 from ..room import Room
+from ..web_static import html_response
 from ..ws import ConnectionManager
 from .archive import MAX_ZIP_BYTES, unpack
 from .auth import COOKIE, check_origin, issue, session
@@ -366,11 +367,11 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
         @app.get("/")
         @app.get("/host")
         async def host_page() -> FileResponse:
-            return FileResponse(dist / "host.html")
+            return html_response(dist / "host.html")
 
         @app.get("/player")
         async def player_page() -> FileResponse:
-            return FileResponse(dist / "player.html")
+            return html_response(dist / "player.html")
 
         # 静的配信はビルド資産のみに限定し、別の HTML への迂回を作らない。
         app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
