@@ -59,7 +59,13 @@ body {
 .player-header {
   display: flex;
   align-items: baseline;
+  justify-content: center;
   gap: 0.75rem;
+  box-sizing: border-box;
+  width: 100%;
+  /* 右上の名前変更ボタン（44px + 配置余白）と長い表示名が重ならないようにする */
+  padding-inline: calc(44px + 0.75rem);
+  max-width: 100%;
 }
 
 /* 押す機会が少ないので目立たせない。指で押せるよう当たりは 44px 四方 */
@@ -85,6 +91,10 @@ body {
 }
 
 .player-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 1.25rem;
   font-weight: 700;
 }

@@ -36,6 +36,9 @@ export function App() {
 
   const nameRef = useRef(name);
   nameRef.current = name;
+  // 名前変更の join を送ったときだけ立てる。再接続の welcome で編集画面を閉じないため
+  const renamingRef = useRef(false);
+  const nameBeforeRenameRef = useRef<string | null>(null);
 
   const handleOpen = useCallback((send: (message: ClientMessage) => void) => {
     const token = localStorage.getItem(TOKEN_KEY);
@@ -52,7 +55,12 @@ export function App() {
         localStorage.setItem(NAME_KEY, nameRef.current);
         setPlayerId(message.player_id);
         setJoined(true);
-        setEditingName(false);
+        // 再接続の welcome では編集中の入力を捨てない。名前変更の応答のときだけ閉じる
+        if (renamingRef.current) {
+          setEditingName(false);
+          renamingRef.current = false;
+          nameBeforeRenameRef.current = null;
+        }
         break;
 
       case 'room_state':
@@ -70,6 +78,16 @@ export function App() {
         break;
 
       case 'error':
+        // 名前変更が拒否されたら、次の再接続で誤った名前が送られないよう元に戻す
+        if (renamingRef.current) {
+          const previous = nameBeforeRenameRef.current;
+          if (previous !== null) {
+            setName(previous);
+            nameRef.current = previous;
+          }
+          renamingRef.current = false;
+          nameBeforeRenameRef.current = null;
+        }
         if (message.code === 'ended' || message.code === 'forbidden') setEnded(true);
         setNotice(message.message);
         break;
@@ -90,12 +108,16 @@ export function App() {
 
   const handleSubmitName = useCallback(
     (input: string) => {
+      if (editingName) {
+        renamingRef.current = true;
+        nameBeforeRenameRef.current = name;
+      }
       // welcome 到着前に再レンダーが走っても nameRef が古い名前に戻らないよう、両方更新する
       setName(input);
       nameRef.current = input;
       send({ type: 'join', name: input, token: localStorage.getItem(TOKEN_KEY) });
     },
-    [send],
+    [send, editingName, name],
   );
 
   const handleBuzz = useCallback(() => {
