@@ -8,6 +8,7 @@ Cloud Run での公開開催（主催者認証・問題ZIP・開催期限・再�
 現在の実験の主対象は [`llm-poc`](docs/llm.md) と [`jev-poc`](docs/jev-poc.md) である。
 
 同一ネットワーク内で開催するオンライン早押し（投影 + スマホ）も持つ。
+物理ボタン参加は別リポジトリ [trans-ai-quiz-buzzer](https://github.com/takegg0311/trans-ai-quiz-buzzer) の Raspberry Pi 中継器で対応する（スマホ回答者と同じ WebSocket・早押し判定は本リポジトリのサーバのまま）。
 **AI を参加者として加えられる**（Jev が早押しし、3 モデルの合議で回答する）。
 元になった 1 台完結の PoC（[`poc/`](docs/poc.md)）は凍結している。
 
