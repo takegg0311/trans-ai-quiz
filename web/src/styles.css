@@ -44,6 +44,7 @@ body {
 /* ---------------------------------------------------------- 回答者用 */
 
 .player {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -58,10 +59,42 @@ body {
 .player-header {
   display: flex;
   align-items: baseline;
+  justify-content: center;
   gap: 0.75rem;
+  box-sizing: border-box;
+  width: 100%;
+  /* 右上の名前変更ボタン（44px + 配置余白）と長い表示名が重ならないようにする */
+  padding-inline: calc(44px + 0.75rem);
+  max-width: 100%;
+}
+
+/* 押す機会が少ないので目立たせない。指で押せるよう当たりは 44px 四方 */
+.rename-button {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.rename-button:active {
+  background: var(--surface);
 }
 
 .player-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 1.25rem;
   font-weight: 700;
 }
@@ -71,8 +104,18 @@ body {
   font-size: 0.85rem;
 }
 
-.buzz-button {
+/* ヘッダと通知の間の残り高さを占め、早押し／回答権をその中央に置く */
+.player-stage {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 0;
+}
+
+.buzz-button {
   width: min(100%, 22rem);
   border: none;
   border-radius: 50%;
@@ -106,7 +149,6 @@ body {
 
 .answer-right {
   display: flex;
-  flex: 1;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -115,6 +157,7 @@ body {
   border: 3px solid var(--accent);
   border-radius: 1rem;
   background: rgba(227, 179, 65, 0.12);
+  padding: 2rem 1.5rem;
 }
 
 .answer-right-label {
@@ -172,6 +215,17 @@ body {
   background: #30363d;
   color: var(--muted);
   cursor: default;
+}
+
+.name-form-cancel {
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.05rem;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 /* ---------------------------------------------------------- 出題者用 */

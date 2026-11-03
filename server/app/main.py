@@ -29,6 +29,7 @@ from .jev.router import router as jev_router
 from .llm.router import router as llm_router
 from .quiz import QUIZ_DATA_DIR, REPO_ROOT, QuizDataError, Question, load_questions
 from .room import Room
+from .web_static import DistStaticFiles, html_response
 from .ws import ConnectionManager, router as ws_router
 
 WEB_DIST_DIR = REPO_ROOT / "web" / "dist"
@@ -187,11 +188,11 @@ if WEB_DIST_DIR.is_dir():
     @app.get("/host")
     async def host_page() -> FileResponse:
         _require_quiz_data()
-        return FileResponse(WEB_DIST_DIR / "host.html")
+        return html_response(WEB_DIST_DIR / "host.html")
 
     @app.get("/player")
     async def player_page() -> FileResponse:
         _require_quiz_data()
-        return FileResponse(WEB_DIST_DIR / "player.html")
+        return html_response(WEB_DIST_DIR / "player.html")
 
-    app.mount("/", StaticFiles(directory=WEB_DIST_DIR), name="web")
+    app.mount("/", DistStaticFiles(directory=WEB_DIST_DIR), name="web")

@@ -22,6 +22,7 @@ from ..llm.router import health as llm_health, predict as llm_predict
 from ..protocol import BuzzAcceptedMessage, BuzzRejectedMessage, ClientMessage, ErrorMessage, WelcomeMessage
 from ..quiz import REPO_ROOT, QuizDataError
 from ..room import Room
+from ..web_static import html_response
 from ..ws import ConnectionManager
 from .archive import MAX_ZIP_BYTES, unpack
 from .auth import COOKIE, check_origin, issue, session
@@ -259,6 +260,8 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
     @app.websocket("/ws")
     async def websocket(socket: WebSocket) -> None:
         player_id: str | None = None
+        # welcome で返したトークン。参加済み接続からの名前変更用の再 join で本人確認に使う
+        player_token: str | None = None
         connection_id = os.urandom(16).hex()
         event_id = ""
         is_host = False
@@ -283,8 +286,13 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
                     raise HTTPException(413, "メッセージが大きすぎます。")
                 try:
                     message = adapter.validate_json(raw)
-                    if message.type == "join" and (is_host or player_id is not None):
+                    # 出題者からの join は拒否。参加済み回答者は本人トークン付きの再 join（名前変更）だけ通す
+                    if message.type == "join" and is_host:
                         raise HTTPException(409, "この接続は参加済みです。")
+                    if message.type == "join" and player_id is not None:
+                        token = message.token or ""
+                        if player_token is None or not secrets_equal(token, player_token):
+                            raise HTTPException(409, "この接続は参加済みです。")
                     if message.type == "host_hello" and not is_host:
                         raise HTTPException(403, "主催者認証が必要です。")
                     async with lock:
@@ -292,6 +300,10 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
                             if player_id and message.type == "buzz":
                                 if document.get("connections", {}).get(player_id) != connection_id:
                                     raise HTTPException(403, "新しい接続へ切り替わっています。")
+                            # 別タブが接続を奪った後に、古いタブから名前変更で奪い返さない
+                            if player_id and message.type == "join":
+                                if document.get("connections", {}).get(player_id) != connection_id:
+                                    raise HTTPException(409, "この接続は参加済みです。")
                             result = execute(room, document, message, player_id, is_host)
                             if message.type == "join":
                                 document.setdefault("connections", {})[result.id] = connection_id
@@ -300,6 +312,7 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
                             take_over=is_host and message.type == "host_hello")
                         if message.type == "join":
                             player_id = result.id
+                            player_token = result.token
                             manager.players[player_id] = socket
                             await manager.send(socket, WelcomeMessage(player_id=result.id, token=result.token, role="player"))
                         elif message.type == "host_hello":
@@ -354,11 +367,11 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
         @app.get("/")
         @app.get("/host")
         async def host_page() -> FileResponse:
-            return FileResponse(dist / "host.html")
+            return html_response(dist / "host.html")
 
         @app.get("/player")
         async def player_page() -> FileResponse:
-            return FileResponse(dist / "player.html")
+            return html_response(dist / "player.html")
 
         # 静的配信はビルド資産のみに限定し、別の HTML への迂回を作らない。
         app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")

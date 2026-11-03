@@ -15,6 +15,7 @@ import {
 } from '../protocol';
 import { BuzzButton } from './BuzzButton';
 import { NameForm } from './NameForm';
+import { RenameButton } from './RenameButton';
 
 /** リロードしても同じ参加者として復帰するために保存する */
 const EVENT_ID = new URLSearchParams(window.location.search).get('event');
@@ -28,12 +29,16 @@ export function App() {
   const [state, setState] = useState<RoomStateMessage | null>(null);
   const [ended, setEnded] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState(false);
 
   // 送信直後の見た目を先に変えるため、サーバの応答を待たずに落とす
   const [pressed, setPressed] = useState(false);
 
   const nameRef = useRef(name);
   nameRef.current = name;
+  // 名前変更の join を送ったときだけ立てる。再接続の welcome で編集画面を閉じないため
+  const renamingRef = useRef(false);
+  const nameBeforeRenameRef = useRef<string | null>(null);
 
   const handleOpen = useCallback((send: (message: ClientMessage) => void) => {
     const token = localStorage.getItem(TOKEN_KEY);
@@ -50,6 +55,12 @@ export function App() {
         localStorage.setItem(NAME_KEY, nameRef.current);
         setPlayerId(message.player_id);
         setJoined(true);
+        // 再接続の welcome では編集中の入力を捨てない。名前変更の応答のときだけ閉じる
+        if (renamingRef.current) {
+          setEditingName(false);
+          renamingRef.current = false;
+          nameBeforeRenameRef.current = null;
+        }
         break;
 
       case 'room_state':
@@ -67,6 +78,16 @@ export function App() {
         break;
 
       case 'error':
+        // 名前変更が拒否されたら、次の再接続で誤った名前が送られないよう元に戻す
+        if (renamingRef.current) {
+          const previous = nameBeforeRenameRef.current;
+          if (previous !== null) {
+            setName(previous);
+            nameRef.current = previous;
+          }
+          renamingRef.current = false;
+          nameBeforeRenameRef.current = null;
+        }
         if (message.code === 'ended' || message.code === 'forbidden') setEnded(true);
         setNotice(message.message);
         break;
@@ -87,11 +108,16 @@ export function App() {
 
   const handleSubmitName = useCallback(
     (input: string) => {
+      if (editingName) {
+        renamingRef.current = true;
+        nameBeforeRenameRef.current = name;
+      }
+      // welcome 到着前に再レンダーが走っても nameRef が古い名前に戻らないよう、両方更新する
       setName(input);
       nameRef.current = input;
       send({ type: 'join', name: input, token: localStorage.getItem(TOKEN_KEY) });
     },
-    [send],
+    [send, editingName, name],
   );
 
   const handleBuzz = useCallback(() => {
@@ -127,6 +153,24 @@ export function App() {
     !pressed &&
     me?.locked_out !== true;
 
+  if (editingName) {
+    return (
+      <main className="player">
+        <NameForm
+          // ヘッダの表示名（連番付き）ではなく、参加時に送った名前を初期値にする
+          key={name}
+          defaultValue={name}
+          disabled={status !== 'open'}
+          submitLabel="変更する"
+          onSubmit={handleSubmitName}
+          onCancel={() => setEditingName(false)}
+        />
+        {status !== 'open' && <p className="notice">サーバに接続しています…</p>}
+        {notice !== null && <p className="notice">{notice}</p>}
+      </main>
+    );
+  }
+
   return (
     <main className="player">
       <header className="player-header">
@@ -134,14 +178,19 @@ export function App() {
         {status !== 'open' && <span className="player-status">接続中…</span>}
       </header>
 
-      {hasAnswerRight ? (
-        <section className="answer-right" aria-live="assertive">
-          <p className="answer-right-label">回答権</p>
-          <p className="answer-right-note">答えを声で伝えてください</p>
-        </section>
-      ) : (
-        <BuzzButton disabled={!canBuzz} onBuzz={handleBuzz} />
-      )}
+      <RenameButton onClick={() => setEditingName(true)} />
+
+      {/* 残り高さを占める領域の中央に置く。通知は外に出し、出てもボタン位置が大きく動かないようにする */}
+      <div className="player-stage">
+        {hasAnswerRight ? (
+          <section className="answer-right" aria-live="assertive">
+            <p className="answer-right-label">回答権</p>
+            <p className="answer-right-note">答えを声で伝えてください</p>
+          </section>
+        ) : (
+          <BuzzButton disabled={!canBuzz} onBuzz={handleBuzz} />
+        )}
+      </div>
 
       {state?.buzzed != null && !hasAnswerRight && (
         <p className="notice" aria-live="polite">
