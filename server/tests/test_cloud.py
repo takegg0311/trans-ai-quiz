@@ -350,3 +350,150 @@ def test_new_host_takes_over_while_previous_revision_is_alive(environment: Any) 
     second.change(event['id'], lambda room, document: execute(
         room, document, SimpleNamespace(type='resume'), None, True))
     assert first.read()['paused'] is False
+
+
+def _receive_until(websocket: Any, message_type: str) -> Any:
+    while True:
+        message = websocket.receive_json()
+        if message["type"] == message_type:
+            return message
+
+
+def test_cloud_websocket_rejoin_renames_with_own_token(environment: Any) -> None:
+    """参加済み接続は本人トークン付きの再 join で名前だけ更新できる。"""
+    settings, states, objects = environment
+    app = create_app(settings, states, objects)
+    headers = {"Origin": settings.public_url, "X-Quiz-Request": "1"}
+    with TestClient(app, base_url=settings.public_url) as client:
+        client.post("/api/session", json={"password": "password"}, headers=headers)
+        client.post("/api/tournament", content=archive(), headers=headers)
+        query = client.get("/api/room").json()["join_url"].split("?", 1)[1]
+        with client.websocket_connect(
+            "wss://quiz.example/ws?" + query, headers={"origin": settings.public_url}
+        ) as player:
+            player.send_json({"type": "join", "name": "旧名"})
+            welcome = _receive_until(player, "welcome")
+            state = _receive_until(player, "room_state")
+            assert len(state["players"]) == 1
+            assert state["players"][0]["name"] == "旧名"
+
+            player.send_json({"type": "join", "name": "新名", "token": welcome["token"]})
+            renamed = _receive_until(player, "welcome")
+            assert renamed["player_id"] == welcome["player_id"]
+            updated = _receive_until(player, "room_state")
+            assert len(updated["players"]) == 1
+            assert updated["players"][0]["id"] == welcome["player_id"]
+            assert updated["players"][0]["name"] == "新名"
+
+
+def test_cloud_websocket_rejoin_rejects_without_own_token(environment: Any) -> None:
+    """トークン無し・他人のトークン・出題者からの join は 409 相当で拒否する。"""
+    settings, states, objects = environment
+    app = create_app(settings, states, objects)
+    headers = {"Origin": settings.public_url, "X-Quiz-Request": "1"}
+    with TestClient(app, base_url=settings.public_url) as client:
+        client.post("/api/session", json={"password": "password"}, headers=headers)
+        client.post("/api/tournament", content=archive(), headers=headers)
+        query = client.get("/api/room").json()["join_url"].split("?", 1)[1]
+
+        with client.websocket_connect(
+            "wss://quiz.example/ws?role=host", headers={"origin": settings.public_url}
+        ) as host:
+            host.send_json({"type": "host_hello"})
+            _receive_until(host, "welcome")
+            _receive_until(host, "room_state")
+            host.send_json({"type": "join", "name": "主催者"})
+            error = _receive_until(host, "error")
+            assert error["code"] == "invalid_operation"
+            assert error["message"] == "この接続は参加済みです。"
+            assert len(states.read("current")["room"]["players"]) == 0
+
+        with client.websocket_connect(
+            "wss://quiz.example/ws?" + query, headers={"origin": settings.public_url}
+        ) as first:
+            first.send_json({"type": "join", "name": "一人目"})
+            first_welcome = _receive_until(first, "welcome")
+            _receive_until(first, "room_state")
+
+            with client.websocket_connect(
+                "wss://quiz.example/ws?" + query, headers={"origin": settings.public_url}
+            ) as second:
+                second.send_json({"type": "join", "name": "二人目"})
+                second_welcome = _receive_until(second, "welcome")
+                _receive_until(second, "room_state")
+                # 一人目にも二人目参加の room_state が届く
+                _receive_until(first, "room_state")
+
+                first.send_json({"type": "join", "name": "なりすまし"})
+                error = _receive_until(first, "error")
+                assert error["code"] == "invalid_operation"
+                assert error["message"] == "この接続は参加済みです。"
+
+                first.send_json({
+                    "type": "join",
+                    "name": "なりすまし",
+                    "token": second_welcome["token"],
+                })
+                error = _receive_until(first, "error")
+                assert error["code"] == "invalid_operation"
+                assert error["message"] == "この接続は参加済みです。"
+
+                names = {player["name"] for player in states.read("current")["room"]["players"]}
+                assert names == {"一人目", "二人目"}
+                assert first_welcome["player_id"] != second_welcome["player_id"]
+
+
+def test_cloud_websocket_rejoin_rejects_after_connection_takeover(environment: Any) -> None:
+    """別タブが接続を奪った後、古いタブからの再 join は拒否し、新接続の早押しは通る。"""
+    settings, states, objects = environment
+    app = create_app(settings, states, objects)
+    headers = {"Origin": settings.public_url, "X-Quiz-Request": "1"}
+    with TestClient(app, base_url=settings.public_url) as client:
+        client.post("/api/session", json={"password": "password"}, headers=headers)
+        client.post("/api/tournament", content=archive(), headers=headers)
+        query = client.get("/api/room").json()["join_url"].split("?", 1)[1]
+
+        with client.websocket_connect(
+            "wss://quiz.example/ws?role=host", headers={"origin": settings.public_url}
+        ) as host:
+            host.send_json({"type": "host_hello"})
+            _receive_until(host, "welcome")
+            _receive_until(host, "room_state")
+
+            with client.websocket_connect(
+                "wss://quiz.example/ws?" + query, headers={"origin": settings.public_url}
+            ) as old_tab:
+                old_tab.send_json({"type": "join", "name": "たけ"})
+                welcome = _receive_until(old_tab, "welcome")
+                _receive_until(old_tab, "room_state")
+                _receive_until(host, "room_state")
+
+                with client.websocket_connect(
+                    "wss://quiz.example/ws?" + query, headers={"origin": settings.public_url}
+                ) as new_tab:
+                    new_tab.send_json({"type": "join", "name": "たけ", "token": welcome["token"]})
+                    new_welcome = _receive_until(new_tab, "welcome")
+                    assert new_welcome["player_id"] == welcome["player_id"]
+                    _receive_until(new_tab, "room_state")
+                    _receive_until(old_tab, "room_state")
+                    _receive_until(host, "room_state")
+
+                    old_tab.send_json({
+                        "type": "join",
+                        "name": "奪還",
+                        "token": welcome["token"],
+                    })
+                    error = _receive_until(old_tab, "error")
+                    assert error["code"] == "invalid_operation"
+                    assert error["message"] == "この接続は参加済みです。"
+
+                    host.send_json({"type": "start_question"})
+                    state = _receive_until(new_tab, "room_state")
+                    round_id = state["round_id"]
+                    new_tab.send_json({
+                        "type": "buzz",
+                        "round_id": round_id,
+                        "client_sent_at": 1,
+                    })
+                    accepted = _receive_until(new_tab, "buzz_accepted")
+                    assert accepted["player_id"] == welcome["player_id"]
