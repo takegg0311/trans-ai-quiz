@@ -12,9 +12,10 @@ const question = {
   audioUrl: '/a.wav',
   text: '日本で一番高い山は',
   answers: ['富士山'],
-  lab: { phones: [] },
-  alignment: { chars: [], duration: 1 },
-} as unknown as Question;
+  hasAudio: true,
+  lab: null,
+  alignment: null,
+} as Question;
 
 describe('quizMachine', () => {
   it('待機 → jingle → reading → readEnded → reveal → 待機', () => {

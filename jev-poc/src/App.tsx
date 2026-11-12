@@ -3,6 +3,7 @@ import { ProviderSlot } from './components/ProviderSlot';
 import { RevealModal } from './components/RevealModal';
 import { visibleLength } from './lib/align';
 import {
+  SILENT_CHAR_INTERVAL_MS,
   loadManifest,
   loadQuestion,
   pickRandom,
@@ -13,6 +14,7 @@ import {
   type EnabledMap,
   type ProviderId,
 } from './lib/providerPrefs';
+import { shouldEndSilentReading } from './lib/silentReading';
 import { playJingle } from './lib/sound';
 import { useProviderHealth } from './lib/useProviderHealth';
 import { useSlotJudge } from './lib/useSlotJudge';
@@ -27,14 +29,13 @@ export function App() {
   const [state, dispatch] = useReducer(quizReducer, initialState);
   const [entries, setEntries] = useState<ManifestEntry[]>([]);
   const [currentTime, setCurrentTime] = useState(0);
-  /**
-   * 出題を始めた時点の ON/OFF。出題中に health を取り直しても枠は変えない。
-   * idle のときは null で、画面のトグルは health.enabled を使う。
-   */
+  /** 音声なし問題の表示文字数 */
+  const [silentChars, setSilentChars] = useState(0);
   const [frozenEnabled, setFrozenEnabled] = useState<EnabledMap | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const frameRef = useRef<number | null>(null);
+  const silentTimerRef = useRef<number | null>(null);
   const lastIdRef = useRef<string | undefined>(undefined);
   const readingLengthRef = useRef(0);
 
@@ -53,7 +54,7 @@ export function App() {
           dispatch({
             type: 'loadFailed',
             message:
-              '問題が 1 問もありません。public/quiz_data に wav / txt / lab の 3 点セットを配置してください。',
+              '問題が 1 問もありません。quiz_data に questions.csv を配置してください。',
           });
           return;
         }
@@ -72,29 +73,39 @@ export function App() {
     };
   }, []);
 
-  const readingLength =
-    question === null ? 0 : visibleLength(question.alignment, currentTime);
-  readingLengthRef.current = readingLength;
-  const currentLength = useCallback(() => readingLengthRef.current, []);
-
   const totalLength = question === null ? 0 : [...question.text].length;
   const fullText = question?.text ?? '';
 
+  const readingLength =
+    question === null
+      ? 0
+      : question.hasAudio && question.alignment !== null
+        ? visibleLength(question.alignment, currentTime)
+        : silentChars;
+  readingLengthRef.current = readingLength;
+  const currentLength = useCallback(() => readingLengthRef.current, []);
+
   const typesafe = useSlotJudge({
     provider: 'typesafe',
-    active: slotEnabled.typesafe && (phase === 'reading' || phase === 'readEnded' || phase === 'reveal'),
+    active:
+      slotEnabled.typesafe &&
+      (phase === 'reading' || phase === 'readEnded' || phase === 'reveal'),
     totalLength,
     currentLength,
   });
   const openai = useSlotJudge({
     provider: 'openai',
-    active: slotEnabled.openai && (phase === 'reading' || phase === 'readEnded' || phase === 'reveal'),
+    active:
+      slotEnabled.openai &&
+      (phase === 'reading' || phase === 'readEnded' || phase === 'reveal'),
     totalLength,
     currentLength,
   });
   const gemini = useSlotJudge({
     provider: 'gemini',
-    active: slotEnabled.gemini && (phase === 'reading' || phase === 'readEnded' || phase === 'reveal'),
+    active:
+      slotEnabled.gemini &&
+      (phase === 'reading' || phase === 'readEnded' || phase === 'reveal'),
     totalLength,
     currentLength,
   });
@@ -106,11 +117,32 @@ export function App() {
       cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
     }
+    if (silentTimerRef.current !== null) {
+      window.clearInterval(silentTimerRef.current);
+      silentTimerRef.current = null;
+    }
   }, []);
 
-  // reading の間だけ再生位置を追い、全枠の liveLength を更新する
+  const finishReading = useCallback(() => {
+    stopTracking();
+    for (const id of PROVIDER_IDS) {
+      if (slotEnabled[id]) slots[id].markReadEnded();
+    }
+    dispatch({ type: 'audioEnded' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    stopTracking,
+    slotEnabled.typesafe,
+    slotEnabled.openai,
+    slotEnabled.gemini,
+    typesafe.markReadEnded,
+    openai.markReadEnded,
+    gemini.markReadEnded,
+  ]);
+
+  // 音声あり: reading の間だけ再生位置を追う
   useEffect(() => {
-    if (phase !== 'reading') return;
+    if (phase !== 'reading' || question === null || !question.hasAudio) return;
     const audio = audioRef.current;
     if (audio === null) return;
 
@@ -129,9 +161,53 @@ export function App() {
     frameRef.current = requestAnimationFrame(tick);
 
     return stopTracking;
-  }, [phase, stopTracking]);
+  }, [phase, question, stopTracking]);
 
-  // 読み上げ中だけ判定を送る。枠ごとに独立。
+  // 音声なし: 等速の文字送り（120ms）。ON の全枠が押したら読み切り。
+  useEffect(() => {
+    if (phase !== 'reading' || question === null || question.hasAudio) return;
+
+    setSilentChars(0);
+    silentTimerRef.current = window.setInterval(() => {
+      setSilentChars((current) => {
+        const next = Math.min(current + 1, totalLength);
+        return next;
+      });
+    }, SILENT_CHAR_INTERVAL_MS);
+
+    return stopTracking;
+  }, [phase, question, totalLength, stopTracking]);
+
+  // 音声なしの読み切り条件（全文送り終え / ON の全枠が押した）
+  useEffect(() => {
+    if (phase !== 'reading' || question === null) return;
+
+    const activeIds = PROVIDER_IDS.filter((id) => slotEnabled[id]);
+    const end = shouldEndSilentReading({
+      hasAudio: question.hasAudio,
+      shownLength: readingLength,
+      totalLength,
+      activePressed: activeIds.map(
+        (id) => slots[id].state.display?.pressed === true,
+      ),
+    });
+    if (end) finishReading();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    phase,
+    question,
+    readingLength,
+    totalLength,
+    slotEnabled.typesafe,
+    slotEnabled.openai,
+    slotEnabled.gemini,
+    typesafe.state.display?.pressed,
+    openai.state.display?.pressed,
+    gemini.state.display?.pressed,
+    finishReading,
+  ]);
+
+  // 読み上げ中だけ判定を送る
   useEffect(() => {
     if (phase !== 'reading' || question === null) return;
     if (readingLength === 0) return;
@@ -142,7 +218,6 @@ export function App() {
       slots[id].setLiveLength(readingLength);
       slots[id].feed(partial, readingLength);
     }
-    // slots オブジェクトは毎レンダー新しいので、必要なメソッドだけ依存に置く
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     phase,
@@ -170,10 +245,10 @@ export function App() {
     const entry = pickRandom(entries, lastIdRef.current);
     if (entry === undefined) return;
 
-    // 出題開始時に枠を固定し、世代を進める
     setFrozenEnabled({ ...health.enabled });
     resetAllSlots();
     setCurrentTime(0);
+    setSilentChars(0);
 
     try {
       const loaded = await loadQuestion(entry);
@@ -191,32 +266,18 @@ export function App() {
   }, [phase, health.canStart, health.enabled, entries, resetAllSlots]);
 
   const handleAudioEnded = useCallback(() => {
-    if (phase !== 'reading') return;
-    stopTracking();
-    for (const id of PROVIDER_IDS) {
-      if (slotEnabled[id]) slots[id].markReadEnded();
-    }
-    dispatch({ type: 'audioEnded' });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    phase,
-    stopTracking,
-    slotEnabled.typesafe,
-    slotEnabled.openai,
-    slotEnabled.gemini,
-    typesafe.markReadEnded,
-    openai.markReadEnded,
-    gemini.markReadEnded,
-  ]);
+    if (phase !== 'reading' || question === null || !question.hasAudio) return;
+    finishReading();
+  }, [phase, question, finishReading]);
 
   const handleNext = useCallback(() => {
-    // 待機に戻る時点でも世代を進める（読み切り時の遅延応答を捨てる）
     resetAllSlots();
     setFrozenEnabled(null);
     dispatch({ type: 'next' });
   }, [resetAllSlots]);
 
-  const startDisabled = !canStart(phase) || !health.canStart || entries.length === 0;
+  const startDisabled =
+    !canStart(phase) || !health.canStart || entries.length === 0;
 
   return (
     <div className="app">
@@ -279,7 +340,7 @@ export function App() {
         )}
       </div>
 
-      {question !== null && (
+      {question !== null && question.hasAudio && question.audioUrl !== null && (
         <audio
           ref={audioRef}
           src={question.audioUrl}
