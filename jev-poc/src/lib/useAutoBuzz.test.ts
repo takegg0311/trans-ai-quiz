@@ -281,14 +281,14 @@ describe('疎通確認', () => {
   it('古い確認の結果で新しい結果を上書きしない', async () => {
     // 「再チェック」を続けて押すと確認が複数本走る。先に投げたものが
     // 後から返ると、疎通しているのに offline を書いてしまう。
-    let releaseSlow: (value: judgeApi.JevHealth | null) => void = () => {};
+    let releaseSlow: (value: judgeApi.JudgeHealth | null) => void = () => {};
     vi.spyOn(judgeApi, 'checkHealth')
       .mockReturnValueOnce(
-        new Promise<judgeApi.JevHealth | null>((resolve) => {
+        new Promise<judgeApi.JudgeHealth | null>((resolve) => {
           releaseSlow = resolve;
         }),
       )
-      .mockResolvedValue({ available: true, model: 'jev-latest', narrowedLevels: 4 });
+      .mockResolvedValue({ available: true, provider: 'typesafe', model: 'jev-latest', narrowedLevels: 4 });
 
     const { result } = renderHook(() => useAutoBuzz(vi.fn().mockReturnValue(true)));
 

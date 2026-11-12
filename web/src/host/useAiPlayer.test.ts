@@ -60,7 +60,7 @@ async function mount(questionId: string | null, send = vi.fn()) {
       useAiPlayer({ send: send as (message: ClientMessage) => void, roundId: 1, questionId: qid }),
     { initialProps: { qid: questionId } },
   );
-  await waitFor(() => expect(hook.result.current.readiness.jev).toBe(true));
+  await waitFor(() => expect(hook.result.current.readiness.judge).toBe(true));
   act(() => {
     hook.result.current.setEnabled(true);
   });
@@ -87,9 +87,15 @@ async function pressAndAccept(
 beforeEach(() => {
   vi.spyOn(judgeApi, 'checkHealth').mockResolvedValue({
     available: true,
+    provider: 'typesafe',
     model: 'jev-latest',
     narrowedLevels: 4,
     readingEndedDelayMs: 0,
+    providers: [
+      { id: 'typesafe', label: 'TypeSafe', model: 'jev-latest', available: true },
+      { id: 'openai', label: 'OpenAI', model: 'gpt-6-luna', available: false },
+      { id: 'gemini', label: 'Gemini', model: 'gemini-decision-1', available: false },
+    ],
   });
   vi.spyOn(llm, 'checkHealth').mockResolvedValue(providers());
   vi.spyOn(llm, 'predict').mockResolvedValue({

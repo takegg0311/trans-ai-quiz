@@ -15,7 +15,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { decide, type Judgement } from './decision';
-import { checkHealth, judge, type JevHealth, type JudgeResult } from './judge';
+import { checkHealth, judge, type JudgeHealth, type JudgeResult } from './judge';
 
 /** server との疎通状態 */
 export type HealthStatus = 'checking' | 'online' | 'offline';
@@ -45,7 +45,7 @@ export type PressRequest = (chars: number, reason: string) => boolean;
 
 export function useAutoBuzz(onPress: PressRequest) {
   const [health, setHealth] = useState<HealthStatus>('checking');
-  const [info, setInfo] = useState<JevHealth | null>(null);
+  const [info, setInfo] = useState<JudgeHealth | null>(null);
   const [enabled, setEnabled] = useState(true);
   const [logs, setLogs] = useState<JudgeLog[]>([]);
 

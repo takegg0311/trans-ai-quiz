@@ -19,8 +19,9 @@ const HEALTH_TIMEOUT_MS = 3000;
  */
 const JUDGE_TIMEOUT_MS = 5000;
 
-export type JevHealth = {
+export type JudgeHealth = {
   available: boolean;
+  provider: string;
   model: string;
   /** narrowed の段階数。score の値域は 0〜(この値-1) */
   narrowedLevels: number;
@@ -49,7 +50,7 @@ export type JudgeResult = JudgeSuccess | JudgeError;
  * Jev が使える状態かを問い合わせる。
  * server が起動していない場合は null を返す（エラーにしない）。
  */
-export async function checkHealth(): Promise<JevHealth | null> {
+export async function checkHealth(): Promise<JudgeHealth | null> {
   try {
     const response = await fetch(`${BASE}/health`, {
       signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
@@ -62,6 +63,7 @@ export async function checkHealth(): Promise<JevHealth | null> {
     const data = body as Record<string, unknown>;
     return {
       available: data.available === true,
+      provider: typeof data.provider === 'string' ? data.provider : '',
       model: typeof data.model === 'string' ? data.model : '',
       narrowedLevels:
         typeof data.narrowed_levels === 'number' ? data.narrowed_levels : 0,

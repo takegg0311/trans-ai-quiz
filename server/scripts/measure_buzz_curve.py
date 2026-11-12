@@ -26,8 +26,9 @@ from pathlib import Path
 # server/ を import パスへ通す（スクリプトを直接実行するため）
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.judge.client import JevError, evaluate  # noqa: E402
+from app.judge.client import evaluate  # noqa: E402
 from app.judge.config import api_key  # noqa: E402
+from app.judge.errors import JudgeError  # noqa: E402
 from app.judge.questions import VARIANTS  # noqa: E402
 from app.quiz import QUIZ_DATA_DIR, QuizDataError, load_questions  # noqa: E402
 
@@ -131,7 +132,7 @@ async def _measure_one(
         started = time.perf_counter()
         try:
             answers = await evaluate(partial, questions)
-        except JevError as error:
+        except JudgeError as error:
             sample.error = f"{error.kind}: {error.message}"
         else:
             sample.buzz = _number(answers.get("buzz"), "noul")
@@ -168,7 +169,7 @@ async def _run(
     variant: str,
     only_parallel: bool,
 ) -> int:
-    if api_key() is None:
+    if api_key("TYPESAFE_API_KEY") is None:
         print("TYPESAFE_API_KEY が設定されていません（server/.env）", file=sys.stderr)
         return 1
 

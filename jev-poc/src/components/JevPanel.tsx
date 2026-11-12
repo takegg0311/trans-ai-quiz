@@ -11,11 +11,11 @@ import {
   PARALLEL_RISK_CHARS,
 } from '../lib/decision';
 import type { HealthStatus, JudgeLog } from '../lib/useAutoBuzz';
-import type { JevHealth } from '../lib/judge';
+import type { JudgeHealth } from '../lib/judge';
 
 type Props = {
   health: HealthStatus;
-  info: JevHealth | null;
+  info: JudgeHealth | null;
   enabled: boolean;
   logs: JudgeLog[];
   onToggle: (enabled: boolean) => void;

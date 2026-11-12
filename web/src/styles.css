@@ -536,6 +536,12 @@ body {
   cursor: pointer;
 }
 
+.ai-panel-meta {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
 .ai-panel-notice {
   margin: 0.6rem 0 0;
   font-size: 0.8rem;
