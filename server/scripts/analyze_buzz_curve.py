@@ -45,6 +45,8 @@ PIVOT = "ですが"
 
 @dataclass
 class Row:
+    provider: str
+    model: str
     variant: str
     question_id: str
     answer: str
@@ -54,6 +56,11 @@ class Row:
     buzz: float | None
     parallel: float | None
     asking: float | None
+
+
+#: provider 列が無い古い CSV 用の既定。表の見出しを揃えるためだけに使う。
+_LEGACY_PROVIDER = ""
+_LEGACY_MODEL = ""
 
 
 def _to_float(value: str) -> float | None:
@@ -70,6 +77,9 @@ def _load(path: Path) -> list[Row]:
     with path.open(encoding="utf-8", newline="") as handle:
         return [
             Row(
+                # provider / model 列が無い古い計測は空文字。variant だけでまとめる。
+                provider=raw.get("provider") or _LEGACY_PROVIDER,
+                model=raw.get("model") or _LEGACY_MODEL,
                 # variant 列が無い古い計測は v1 とみなす
                 variant=raw.get("variant") or "v1",
                 question_id=raw["question_id"],
@@ -83,6 +93,23 @@ def _load(path: Path) -> list[Row]:
             )
             for raw in csv.DictReader(handle)
         ]
+
+
+def _group_key(row: Row) -> tuple[str, str, str]:
+    """表を分けるキー。
+
+    provider 列がある CSV は (provider, model, variant)。
+    model まで含めるのは、JUDGE_MODEL でモデルを変えた計測が混ざるのを防ぐため。
+    列が無い古い CSV は provider/model が空なので、実質 variant だけになる。
+    """
+    return (row.provider, row.model, row.variant)
+
+
+def _group_title(key: tuple[str, str, str]) -> str:
+    provider, model, variant = key
+    if provider == _LEGACY_PROVIDER and model == _LEGACY_MODEL:
+        return variant
+    return f"{provider} / {model} / {variant}"
 
 
 def _by_question(rows: list[Row]) -> dict[str, list[Row]]:
@@ -359,13 +386,16 @@ def main() -> int:
         print("計測データが空です。", file=sys.stderr)
         return 1
 
-    variants: dict[str, list[Row]] = {}
+    groups: dict[tuple[str, str, str], list[Row]] = {}
     for row in rows:
-        variants.setdefault(row.variant, []).append(row)
+        groups.setdefault(_group_key(row), []).append(row)
 
-    for variant, variant_rows in sorted(variants.items()):
-        by_question = _by_question(variant_rows)
-        print(f"=== {variant}   問題数 {len(by_question)}   観測点 {len(variant_rows)} ===")
+    for key, group_rows in sorted(groups.items()):
+        by_question = _by_question(group_rows)
+        print(
+            f"=== {_group_title(key)}   "
+            f"問題数 {len(by_question)}   観測点 {len(group_rows)} ==="
+        )
         print()
         _ceiling(by_question)
         _table(by_question)

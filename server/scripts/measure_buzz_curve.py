@@ -1,9 +1,10 @@
-"""確定曲線の計測。Phase 4 の閾値をここで決める。
+"""確定曲線の計測。閾値をここで決める。
 
-questions.csv の問題文を先頭から 1 文字ずつ伸ばしながら Jev へ投げ、
+questions.csv の問題文を先頭から 1 文字ずつ伸ばしながら判定 API へ投げ、
 buzz / parallel / narrowed の推移を CSV へ落とす。
 
     uv run python scripts/measure_buzz_curve.py --limit 5
+    uv run python scripts/measure_buzz_curve.py --provider openai --limit 1
 
 出力（既定 logs/buzz_curve.csv）は 1 問 × 1 文字数 = 1 行。
 これを集計して「どの閾値なら、どれだけ早く・どれだけ正確に押せるか」を見る。
@@ -12,6 +13,7 @@ buzz / parallel / narrowed の推移を CSV へ落とす。
 順序を逆にしないためのスクリプトである。
 
 注意: 1 問あたり (文字数 / step) 回 API を叩く。--limit と --step で加減すること。
+--provider を省略したときは typesafe に固定する（JUDGE_PROVIDER には追従しない）。
 """
 
 from __future__ import annotations
@@ -27,7 +29,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.judge.client import evaluate  # noqa: E402
-from app.judge.config import api_key  # noqa: E402
+from app.judge.config import (  # noqa: E402
+    PROVIDERS,
+    ProviderId,
+    api_key,
+    model_for,
+)
 from app.judge.errors import JudgeError  # noqa: E402
 from app.judge.questions import VARIANTS  # noqa: E402
 from app.quiz import QUIZ_DATA_DIR, QuizDataError, load_questions  # noqa: E402
@@ -35,6 +42,8 @@ from app.quiz import QUIZ_DATA_DIR, QuizDataError, load_questions  # noqa: E402
 DEFAULT_OUTPUT = Path(__file__).resolve().parents[1] / "logs" / "buzz_curve.csv"
 
 COLUMNS = (
+    "provider",
+    "model",
     "variant",
     "question_id",
     "answer",
@@ -55,6 +64,8 @@ COLUMNS = (
 class Sample:
     """1 問 × 1 文字数ぶんの観測。"""
 
+    provider: str
+    model: str
     variant: str
     question_id: str
     answer: str
@@ -71,6 +82,8 @@ class Sample:
 
     def as_row(self) -> dict[str, object]:
         return {
+            "provider": self.provider,
+            "model": self.model,
             "variant": self.variant,
             "question_id": self.question_id,
             "answer": self.answer,
@@ -99,7 +112,31 @@ def _number(answer: object, field: str) -> float | None:
     return float(value) if isinstance(value, (int, float)) else None
 
 
+def _check_output_header(output: Path) -> str | None:
+    """既存 CSV に provider 列が無ければエラーメッセージを返す。
+
+    最初の API 呼び出しより前に呼ぶ。列がずれた CSV を作らないため。
+    """
+    if not output.is_file():
+        return None
+    with output.open(encoding="utf-8", newline="") as handle:
+        reader = csv.reader(handle)
+        try:
+            header = next(reader)
+        except StopIteration:
+            return None
+    if "provider" not in header:
+        return (
+            f"{output} のヘッダに provider 列がありません。"
+            "列がずれた CSV を作らないため追記できません。"
+            " --output で別のファイルを指定してください。"
+        )
+    return None
+
+
 async def _measure_one(
+    provider: ProviderId,
+    model: str,
     variant: str,
     questions: dict[str, dict[str, object]],
     question_id: str,
@@ -107,11 +144,7 @@ async def _measure_one(
     text: str,
     step: int,
 ) -> list[Sample]:
-    """1 問を 1 文字ずつ伸ばしながら評価する。
-
-    逐次に投げるのは、読み上げの進行を模すためではなく、レート制限を避けるため。
-    確定曲線の形は投げる順序に依らないので、並列化しても結果は変わらない。
-    """
+    """1 問を 1 文字ずつ伸ばしながら評価する。"""
     import time
 
     chars = list(text)
@@ -121,6 +154,8 @@ async def _measure_one(
     for end in range(step, total + 1, step):
         partial = "".join(chars[:end])
         sample = Sample(
+            provider=provider,
+            model=model,
             variant=variant,
             question_id=question_id,
             answer=answer,
@@ -131,13 +166,12 @@ async def _measure_one(
 
         started = time.perf_counter()
         try:
-            answers = await evaluate(partial, questions)
+            answers = await evaluate(partial, questions, provider=provider)
         except JudgeError as error:
             sample.error = f"{error.kind}: {error.message}"
         else:
             sample.buzz = _number(answers.get("buzz"), "noul")
             sample.parallel = _number(answers.get("parallel"), "noul")
-            # asking は v3 以降にのみ存在する。無ければ欠測のまま。
             sample.asking = _number(answers.get("asking"), "noul")
             sample.narrowed = _number(answers.get("narrowed"), "score")
             sample.narrowed_confidence = _number(answers.get("narrowed"), "confidence")
@@ -168,10 +202,20 @@ async def _run(
     output: Path,
     variant: str,
     only_parallel: bool,
+    provider: ProviderId,
 ) -> int:
-    if api_key("TYPESAFE_API_KEY") is None:
-        print("TYPESAFE_API_KEY が設定されていません（server/.env）", file=sys.stderr)
+    spec = PROVIDERS[provider]
+    if api_key(spec.env_key) is None:
+        print(f"{spec.env_key} が設定されていません（server/.env）", file=sys.stderr)
         return 1
+
+    # ヘッダ検査は最初の API 呼び出しより前。課金と時間を無駄にしないため。
+    header_error = _check_output_header(output)
+    if header_error is not None:
+        print(header_error, file=sys.stderr)
+        return 1
+
+    model = model_for(provider)
 
     try:
         questions = load_questions()
@@ -179,8 +223,6 @@ async def _run(
         print(f"問題データを読み込めませんでした: {error}", file=sys.stderr)
         return 1
 
-    # パラレル問題だけを測りたい場合に絞る。初回計測では 1 問も含まれず、
-    # parallel の誤検出に気づくのが遅れた。
     if only_parallel:
         questions = [q for q in questions if "ですが" in q.text]
 
@@ -194,9 +236,12 @@ async def _run(
     output.parent.mkdir(parents=True, exist_ok=True)
     all_samples: list[Sample] = []
 
+    print(f"provider={provider}  model={model}  variant={variant}")
     for index, question in enumerate(questions, start=1):
         print(f"[{index}/{len(questions)}] {question.id}  正解: {question.answers[0]}")
         samples = await _measure_one(
+            provider,
+            model,
             variant,
             VARIANTS[variant],
             question.id,
@@ -206,8 +251,7 @@ async def _run(
         )
         all_samples.extend(samples)
 
-    # 追記にして、variant を変えた計測を 1 ファイルへ貯める。
-    # 比較のたびに前回分が消えると、同じ問題で測り直す手間がかかる。
+    # 追記にして、variant / provider を変えた計測を 1 ファイルへ貯める。
     exists = output.is_file()
     with output.open("a" if exists else "w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=COLUMNS)
@@ -239,6 +283,12 @@ def main() -> int:
         help="使う質問定義（既定: v3。/api/judge/judge と同じもの）",
     )
     parser.add_argument(
+        "--provider",
+        choices=sorted(PROVIDERS),
+        default="typesafe",
+        help="使う判定 provider（既定: typesafe。JUDGE_PROVIDER には追従しない）",
+    )
+    parser.add_argument(
         "--only-parallel",
         action="store_true",
         help="「ですが」を含むパラレル問題だけを測る",
@@ -252,7 +302,14 @@ def main() -> int:
         parser.error("--step は 1 以上である必要があります")
 
     return asyncio.run(
-        _run(args.limit, args.step, args.output, args.variant, args.only_parallel)
+        _run(
+            args.limit,
+            args.step,
+            args.output,
+            args.variant,
+            args.only_parallel,
+            args.provider,
+        )
     )
 
 
