@@ -11,7 +11,7 @@ import {
   PARALLEL_RISK_CHARS,
 } from '../lib/decision';
 import type { HealthStatus, JudgeLog } from '../lib/useAutoBuzz';
-import type { JevHealth } from '../lib/jev';
+import type { JevHealth } from '../lib/judge';
 
 type Props = {
   health: HealthStatus;

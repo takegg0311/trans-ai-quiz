@@ -16,10 +16,10 @@ export default defineConfig({
     // 埋め込めないため。server が起動していなければ自動早押しが無効になる
     // だけで、手動の早押しと回答は従来どおり動く。
     //
-    // 中継するのは /api/jev と /api/llm。問題データ（/quiz_data）と
+    // 中継するのは /api/judge と /api/llm。問題データ（/quiz_data）と
     // ジングル（/sound）は PoC 自身が public から配信している。
     //
-    // /api/jev は早押しの判定、/api/llm は AI が押したときの回答に使う。
+    // /api/judge は早押しの判定、/api/llm は AI が押したときの回答に使う。
     proxy: {
       '/api/llm': {
         target: 'http://localhost:8000',
@@ -32,7 +32,7 @@ export default defineConfig({
           });
         },
       },
-      '/api/jev': {
+      '/api/judge': {
         target: 'http://localhost:8000',
         // server が起動していないのは異常ではなく、想定した縮退状態。
         // 既定では ECONNREFUSED が 500 として返るが、実際には上流が

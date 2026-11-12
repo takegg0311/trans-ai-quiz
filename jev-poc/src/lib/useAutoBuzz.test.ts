@@ -10,11 +10,11 @@
  */
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as jev from './jev';
+import * as judgeApi from './judge';
 import { useAutoBuzz } from './useAutoBuzz';
 
 /** 押すと判断される観測値 */
-const PRESS: jev.JudgeResult = {
+const PRESS: judgeApi.JudgeResult = {
   status: 'ok',
   buzz: 0.95,
   parallel: 0.1,
@@ -24,13 +24,13 @@ const PRESS: jev.JudgeResult = {
 };
 
 /** 押さないと判断される観測値 */
-const HOLD: jev.JudgeResult = { ...PRESS, buzz: 0.1 };
+const HOLD: judgeApi.JudgeResult = { ...PRESS, buzz: 0.1 };
 
 /** 読み上げ済みの文字列。危険区間を抜けた長さにしておく */
 const TEXT = 'あ'.repeat(40);
 
 function online() {
-  return vi.spyOn(jev, 'checkHealth').mockResolvedValue({
+  return vi.spyOn(judgeApi, 'checkHealth').mockResolvedValue({
     available: true,
     model: 'jev-latest',
     narrowedLevels: 4,
@@ -54,7 +54,7 @@ afterEach(() => {
 
 describe('押下の受理', () => {
   it('受理されれば押下済みになり、以降は判定しない', async () => {
-    const judge = vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    const judge = vi.spyOn(judgeApi, 'judge').mockResolvedValue(PRESS);
     const onPress = vi.fn().mockReturnValue(true);
     const { result } = await mount(onPress);
 
@@ -74,7 +74,7 @@ describe('押下の受理', () => {
   it('受理されなければ押下済みにせず、次の文字で判定を続ける', async () => {
     // 読み切られていた・人間が先に押していた場合、呼び出し側は押せない。
     // ここで押下済みにすると、以降の判定まで止まってしまう。
-    const judge = vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    const judge = vi.spyOn(judgeApi, 'judge').mockResolvedValue(PRESS);
     const onPress = vi.fn().mockReturnValue(false);
     const { result } = await mount(onPress);
 
@@ -94,9 +94,9 @@ describe('自動のオン / オフ', () => {
   it('送信後にオフへ切り替えたら、届いた応答で押さない', async () => {
     // enabled を送信時のクロージャで見ていると、オフにした後に
     // 届いた応答で押してしまう。
-    let release: (value: jev.JudgeResult) => void = () => {};
-    vi.spyOn(jev, 'judge').mockReturnValue(
-      new Promise<jev.JudgeResult>((resolve) => {
+    let release: (value: judgeApi.JudgeResult) => void = () => {};
+    vi.spyOn(judgeApi, 'judge').mockReturnValue(
+      new Promise<judgeApi.JudgeResult>((resolve) => {
         release = resolve;
       }),
     );
@@ -119,7 +119,7 @@ describe('自動のオン / オフ', () => {
   });
 
   it('オフの間は送信しない', async () => {
-    const judge = vi.spyOn(jev, 'judge').mockResolvedValue(HOLD);
+    const judge = vi.spyOn(judgeApi, 'judge').mockResolvedValue(HOLD);
     const { result } = await mount(vi.fn().mockReturnValue(true));
 
     act(() => {
@@ -135,9 +135,9 @@ describe('自動のオン / オフ', () => {
 
 describe('世代の管理', () => {
   it('前問の応答では押さない', async () => {
-    let release: (value: jev.JudgeResult) => void = () => {};
-    vi.spyOn(jev, 'judge').mockReturnValue(
-      new Promise<jev.JudgeResult>((resolve) => {
+    let release: (value: judgeApi.JudgeResult) => void = () => {};
+    vi.spyOn(judgeApi, 'judge').mockReturnValue(
+      new Promise<judgeApi.JudgeResult>((resolve) => {
         release = resolve;
       }),
     );
@@ -162,10 +162,10 @@ describe('世代の管理', () => {
   it('前問の応答が、次の問題の送信中フラグを落とさない', async () => {
     // フラグを世代チェックより前に戻すと、1 問のあいだに判定が何本も走り、
     // 古い断片の判定が後から届いて押しうる。
-    const pending: ((value: jev.JudgeResult) => void)[] = [];
-    const judge = vi.spyOn(jev, 'judge').mockImplementation(
+    const pending: ((value: judgeApi.JudgeResult) => void)[] = [];
+    const judge = vi.spyOn(judgeApi, 'judge').mockImplementation(
       () =>
-        new Promise<jev.JudgeResult>((resolve) => {
+        new Promise<judgeApi.JudgeResult>((resolve) => {
           pending.push(resolve);
         }),
     );
@@ -204,7 +204,7 @@ describe('世代の管理', () => {
 
 describe('stop', () => {
   it('手動で押した後は判定しない', async () => {
-    const judge = vi.spyOn(jev, 'judge').mockResolvedValue(HOLD);
+    const judge = vi.spyOn(judgeApi, 'judge').mockResolvedValue(HOLD);
     const { result } = await mount(vi.fn().mockReturnValue(true));
 
     act(() => {
@@ -218,9 +218,9 @@ describe('stop', () => {
   });
 
   it('stop の後に届いた応答では押さない', async () => {
-    let release: (value: jev.JudgeResult) => void = () => {};
-    vi.spyOn(jev, 'judge').mockReturnValue(
-      new Promise<jev.JudgeResult>((resolve) => {
+    let release: (value: judgeApi.JudgeResult) => void = () => {};
+    vi.spyOn(judgeApi, 'judge').mockReturnValue(
+      new Promise<judgeApi.JudgeResult>((resolve) => {
         release = resolve;
       }),
     );
@@ -243,7 +243,7 @@ describe('stop', () => {
 
 describe('送信の間引き', () => {
   it('同じ文字数では送らない', async () => {
-    const judge = vi.spyOn(jev, 'judge').mockResolvedValue(HOLD);
+    const judge = vi.spyOn(judgeApi, 'judge').mockResolvedValue(HOLD);
     const { result } = await mount(vi.fn().mockReturnValue(true));
 
     await act(async () => {
@@ -257,10 +257,10 @@ describe('送信の間引き', () => {
   });
 
   it('応答待ちの間は送らない', async () => {
-    const pending: ((value: jev.JudgeResult) => void)[] = [];
-    const judge = vi.spyOn(jev, 'judge').mockImplementation(
+    const pending: ((value: judgeApi.JudgeResult) => void)[] = [];
+    const judge = vi.spyOn(judgeApi, 'judge').mockImplementation(
       () =>
-        new Promise<jev.JudgeResult>((resolve) => {
+        new Promise<judgeApi.JudgeResult>((resolve) => {
           pending.push(resolve);
         }),
     );
@@ -281,10 +281,10 @@ describe('疎通確認', () => {
   it('古い確認の結果で新しい結果を上書きしない', async () => {
     // 「再チェック」を続けて押すと確認が複数本走る。先に投げたものが
     // 後から返ると、疎通しているのに offline を書いてしまう。
-    let releaseSlow: (value: jev.JevHealth | null) => void = () => {};
-    vi.spyOn(jev, 'checkHealth')
+    let releaseSlow: (value: judgeApi.JevHealth | null) => void = () => {};
+    vi.spyOn(judgeApi, 'checkHealth')
       .mockReturnValueOnce(
-        new Promise<jev.JevHealth | null>((resolve) => {
+        new Promise<judgeApi.JevHealth | null>((resolve) => {
           releaseSlow = resolve;
         }),
       )

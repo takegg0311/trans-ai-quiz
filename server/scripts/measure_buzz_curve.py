@@ -26,9 +26,9 @@ from pathlib import Path
 # server/ を import パスへ通す（スクリプトを直接実行するため）
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.jev.client import JevError, evaluate  # noqa: E402
-from app.jev.config import api_key  # noqa: E402
-from app.jev.questions import VARIANTS  # noqa: E402
+from app.judge.client import JevError, evaluate  # noqa: E402
+from app.judge.config import api_key  # noqa: E402
+from app.judge.questions import VARIANTS  # noqa: E402
 from app.quiz import QUIZ_DATA_DIR, QuizDataError, load_questions  # noqa: E402
 
 DEFAULT_OUTPUT = Path(__file__).resolve().parents[1] / "logs" / "buzz_curve.csv"
@@ -235,7 +235,7 @@ def main() -> int:
         "--variant",
         choices=sorted(VARIANTS),
         default="v3",
-        help="使う質問定義（既定: v3。/api/jev/judge と同じもの）",
+        help="使う質問定義（既定: v3。/api/judge/judge と同じもの）",
     )
     parser.add_argument(
         "--only-parallel",

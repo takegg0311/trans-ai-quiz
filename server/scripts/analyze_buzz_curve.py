@@ -24,7 +24,7 @@ from pathlib import Path
 # server/ を import パスへ通す（スクリプトを直接実行するため）
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.jev.decision import decide  # noqa: E402
+from app.judge.decision import decide  # noqa: E402
 
 DEFAULT_INPUT = Path(__file__).resolve().parents[1] / "logs" / "buzz_curve.csv"
 
@@ -160,7 +160,7 @@ def _table(by_question: dict[str, list[Row]]) -> None:
 
 
 def _rule_result(by_question: dict[str, list[Row]]) -> None:
-    """実装された押下規則（app.jev.decision）での成績。
+    """実装された押下規則（app.judge.decision）での成績。
 
     表の総当たりと違い、これが jev-poc で実際に起きることである。
     スクリプトと UI が同じ関数を使うことで、オフラインで測った成績と
@@ -172,7 +172,7 @@ def _rule_result(by_question: dict[str, list[Row]]) -> None:
     if not has_asking:
         return
 
-    print("  実装された押下規則（app.jev.decision.decide）")
+    print("  実装された押下規則（app.judge.decision.decide）")
     ratios = []
     wrong = 0
     for question_id, rows in sorted(by_question.items()):

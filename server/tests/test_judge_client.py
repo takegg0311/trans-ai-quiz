@@ -8,7 +8,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from app.jev import client as jev_client
+from app.judge import client as jev_client
 
 
 def _mock_transport(monkeypatch: pytest.MonkeyPatch, handler) -> None:
@@ -42,7 +42,7 @@ async def test_answers_をそのまま返す(monkeypatch: pytest.MonkeyPatch) ->
 @pytest.mark.anyio
 async def test_state_と_model_と_questions_を送る(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TYPESAFE_API_KEY", "dummy")
-    monkeypatch.setenv("JEV_MODEL", "")
+    monkeypatch.setenv("JUDGE_MODEL", "")
     captured: dict[str, object] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:

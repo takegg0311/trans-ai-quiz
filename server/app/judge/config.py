@@ -63,7 +63,7 @@ def model() -> str:
     毎回読むのは、テストで環境変数を差し替えられるようにするため
     （llm/config.py の plain_answer_max_length と同じ方針）。
     """
-    raw = os.getenv("JEV_MODEL")
+    raw = os.getenv("JUDGE_MODEL")
     if raw is None or raw.strip() == "":
         return DEFAULT_MODEL
     return raw.strip()

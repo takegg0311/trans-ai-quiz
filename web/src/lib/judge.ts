@@ -3,13 +3,13 @@ import { cloudRequest } from './cloud';
  * Jev 判定 API の呼び出し。
  *
  * API キーをブラウザに置けないため server/ が中継する。開発時は
- * vite.config.ts の proxy が /api/jev を localhost:8000 へ送る。
+ * vite.config.ts の proxy が /api/judge を localhost:8000 へ送る。
  *
  * server が無くても PoC は動く必要がある。疎通しない場合は checkHealth が
  * null を返し、呼び出し側が自動早押しを無効にして手動のみで動かす。
  */
 
-const BASE = '/api/jev';
+const BASE = '/api/judge';
 
 /** health の疎通確認が待つ時間。起動時に走るので短く切る */
 const HEALTH_TIMEOUT_MS = 3000;

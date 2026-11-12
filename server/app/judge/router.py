@@ -20,7 +20,7 @@ from .client import JevError, evaluate
 from .config import ENV_KEY, api_key, model, reading_ended_delay_ms
 from .questions import ACTIVE_QUESTIONS, NARROWED_LEVELS
 
-router = APIRouter(prefix="/api/jev", tags=["jev"])
+router = APIRouter(prefix="/api/judge", tags=["judge"])
 
 
 class JudgeRequest(BaseModel):

@@ -23,7 +23,7 @@ import {
   type ModelAnswer,
 } from '../lib/consensus';
 import { decide } from '../lib/decision';
-import { checkHealth as checkJevHealth, judge as judgeJev } from '../lib/jev';
+import { checkHealth as checkJevHealth, judge as judgeJev } from '../lib/judge';
 import { checkHealth as checkLlmHealth, predict, type PredictResult } from '../lib/llm';
 import type { AiModelAnswerView, ClientMessage } from '../protocol';
 

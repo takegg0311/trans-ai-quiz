@@ -15,7 +15,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { decide, type Judgement } from './decision';
-import { checkHealth, judge, type JevHealth, type JudgeResult } from './jev';
+import { checkHealth, judge, type JevHealth, type JudgeResult } from './judge';
 
 /** server との疎通状態 */
 export type HealthStatus = 'checking' | 'online' | 'offline';

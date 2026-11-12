@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from app.jev.decision import (
+from app.judge.decision import (
     ASKING_MIN,
     BUZZ_STRONG,
     BUZZ_WEAK,

@@ -14,13 +14,13 @@
  */
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as jev from '../lib/jev';
+import * as judgeApi from '../lib/judge';
 import * as llm from '../lib/llm';
 import type { ClientMessage } from '../protocol';
 import { OPPONENTS, useAiPlayer } from './useAiPlayer';
 
 /** 押すと判断される観測値 */
-const PRESS: jev.JudgeResult = {
+const PRESS: judgeApi.JudgeResult = {
   status: 'ok',
   buzz: 0.95,
   parallel: 0.05,
@@ -30,7 +30,7 @@ const PRESS: jev.JudgeResult = {
 };
 
 /** 押さないと判断される観測値 */
-const HOLD: jev.JudgeResult = { ...PRESS, buzz: 0.1 };
+const HOLD: judgeApi.JudgeResult = { ...PRESS, buzz: 0.1 };
 
 /** 予測の成功応答を作る */
 function answer(
@@ -85,7 +85,7 @@ async function pressAndAccept(
 }
 
 beforeEach(() => {
-  vi.spyOn(jev, 'checkHealth').mockResolvedValue({
+  vi.spyOn(judgeApi, 'checkHealth').mockResolvedValue({
     available: true,
     model: 'jev-latest',
     narrowedLevels: 4,
@@ -108,9 +108,9 @@ afterEach(() => {
 describe('前問の文章で押さない', () => {
   it('判定に使った問題が今の問題と違えば押さない', async () => {
     // 判定の応答が返るまでの間に、サーバが次の問題へ進んだ場合
-    let release: (value: jev.JudgeResult) => void = () => {};
-    vi.spyOn(jev, 'judge').mockReturnValue(
-      new Promise<jev.JudgeResult>((resolve) => {
+    let release: (value: judgeApi.JudgeResult) => void = () => {};
+    vi.spyOn(judgeApi, 'judge').mockReturnValue(
+      new Promise<judgeApi.JudgeResult>((resolve) => {
         release = resolve;
       }),
     );
@@ -130,7 +130,7 @@ describe('前問の文章で押さない', () => {
   });
 
   it('同じ問題なら押す', async () => {
-    vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    vi.spyOn(judgeApi, 'judge').mockResolvedValue(PRESS);
     const { hook, send } = await mount('q1');
 
     await act(async () => {
@@ -145,9 +145,9 @@ describe('前問の文章で押さない', () => {
   });
 
   it('押さなかった場合、合議も走らない', async () => {
-    let release: (value: jev.JudgeResult) => void = () => {};
-    vi.spyOn(jev, 'judge').mockReturnValue(
-      new Promise<jev.JudgeResult>((resolve) => {
+    let release: (value: judgeApi.JudgeResult) => void = () => {};
+    vi.spyOn(judgeApi, 'judge').mockReturnValue(
+      new Promise<judgeApi.JudgeResult>((resolve) => {
         release = resolve;
       }),
     );
@@ -170,7 +170,7 @@ describe('遅れて届いたモデルの回答', () => {
   it('確定後に届いた応答でも送り直す', async () => {
     // 早期確定（2 モデル一致）で打ち切ると、3 モデル目が投影に
     // 「応答なし」のまま残ってしまう
-    vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    vi.spyOn(judgeApi, 'judge').mockResolvedValue(PRESS);
     const resolvers: ((value: llm.PredictResult) => void)[] = [];
     vi.spyOn(llm, 'predict').mockImplementation(
       () =>
@@ -219,7 +219,7 @@ describe('遅れて届いたモデルの回答', () => {
 
   it('タイムアウトは応答待ちではなく失敗として出す', async () => {
     // 待っても来ないものは「応答なし」でよい。区別するのは未着だけ
-    vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    vi.spyOn(judgeApi, 'judge').mockResolvedValue(PRESS);
     const resolvers: ((value: llm.PredictResult) => void)[] = [];
     vi.spyOn(llm, 'predict').mockImplementation(
       () =>
@@ -253,7 +253,7 @@ describe('遅れて届いたモデルの回答', () => {
   });
 
   it('確定前の応答では送らない', async () => {
-    vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    vi.spyOn(judgeApi, 'judge').mockResolvedValue(PRESS);
     const resolvers: ((value: llm.PredictResult) => void)[] = [];
     vi.spyOn(llm, 'predict').mockImplementation(
       () =>
@@ -283,7 +283,7 @@ const HEARD = `${TEXT}いうえ`;
 
 describe('LLM へ渡す問題文', () => {
   it('受理されるまでは LLM へ送らない', async () => {
-    vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    vi.spyOn(judgeApi, 'judge').mockResolvedValue(PRESS);
     const predict = vi.spyOn(llm, 'predict');
     const { hook, send } = await mount('q1');
 
@@ -299,7 +299,7 @@ describe('LLM へ渡す問題文', () => {
 
   it('判定に使った文ではなく、受理時点まで読み上げられた文を送る', async () => {
     // Jev の判定から受理までの間も読み上げは進み、投影にはその分まで出ている
-    vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    vi.spyOn(judgeApi, 'judge').mockResolvedValue(PRESS);
     const predict = vi.spyOn(llm, 'predict');
     const { hook } = await mount('q1');
 
@@ -312,7 +312,7 @@ describe('LLM へ渡す問題文', () => {
   });
 
   it('AI が押していなければ受理を渡されても送らない', async () => {
-    vi.spyOn(jev, 'judge').mockResolvedValue(HOLD);
+    vi.spyOn(judgeApi, 'judge').mockResolvedValue(HOLD);
     const predict = vi.spyOn(llm, 'predict');
     const { hook } = await mount('q1');
 
@@ -327,7 +327,7 @@ describe('LLM へ渡す問題文', () => {
   });
 
   it('押した問題と違う問題の受理では送らない', async () => {
-    vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    vi.spyOn(judgeApi, 'judge').mockResolvedValue(PRESS);
     const predict = vi.spyOn(llm, 'predict');
     const { hook } = await mount('q1');
 
@@ -344,7 +344,7 @@ describe('LLM へ渡す問題文', () => {
   });
 
   it('受理は 1 回だけ回答を始める', async () => {
-    vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    vi.spyOn(judgeApi, 'judge').mockResolvedValue(PRESS);
     const predict = vi.spyOn(llm, 'predict');
     const { hook } = await mount('q1');
 
@@ -360,7 +360,7 @@ describe('LLM へ渡す問題文', () => {
 describe('予測した問題文', () => {
   it('ai_answer に各モデルの予測文と、LLM へ送った問題文を載せる', async () => {
     // 投影で読み上げ済み部分と予測部分を分けるには、送った文そのものが要る
-    vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    vi.spyOn(judgeApi, 'judge').mockResolvedValue(PRESS);
     const resolvers: ((value: llm.PredictResult) => void)[] = [];
     vi.spyOn(llm, 'predict').mockImplementation(
       () =>
@@ -397,7 +397,7 @@ describe('予測した問題文', () => {
   });
   it('確定後に遅れて届いたモデルの予測文も送り直す', async () => {
     // 早期確定の後に届いたモデルの予測文も、届いた時点で投影へ出す
-    vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    vi.spyOn(judgeApi, 'judge').mockResolvedValue(PRESS);
     const resolvers: ((value: llm.PredictResult) => void)[] = [];
     vi.spyOn(llm, 'predict').mockImplementation(
       () =>
@@ -440,7 +440,7 @@ describe('予測した問題文', () => {
 
 describe('自動のオン / オフ', () => {
   it('オフの間は送信しない', async () => {
-    const judge = vi.spyOn(jev, 'judge').mockResolvedValue(HOLD);
+    const judge = vi.spyOn(judgeApi, 'judge').mockResolvedValue(HOLD);
     const { hook } = await mount('q1');
 
     act(() => {
@@ -454,9 +454,9 @@ describe('自動のオン / オフ', () => {
   });
 
   it('送信後にオフへ切り替えたら押さない', async () => {
-    let release: (value: jev.JudgeResult) => void = () => {};
-    vi.spyOn(jev, 'judge').mockReturnValue(
-      new Promise<jev.JudgeResult>((resolve) => {
+    let release: (value: judgeApi.JudgeResult) => void = () => {};
+    vi.spyOn(judgeApi, 'judge').mockReturnValue(
+      new Promise<judgeApi.JudgeResult>((resolve) => {
         release = resolve;
       }),
     );
@@ -478,7 +478,7 @@ describe('自動のオン / オフ', () => {
 
 describe('送信の間引き', () => {
   it('同じ文字数では送らない', async () => {
-    const judge = vi.spyOn(jev, 'judge').mockResolvedValue(HOLD);
+    const judge = vi.spyOn(judgeApi, 'judge').mockResolvedValue(HOLD);
     const { hook } = await mount('q1');
 
     await act(async () => {
@@ -492,8 +492,8 @@ describe('送信の間引き', () => {
   });
 
   it('応答待ちの間は送らない', async () => {
-    const judge = vi.spyOn(jev, 'judge').mockReturnValue(
-      new Promise<jev.JudgeResult>(() => {
+    const judge = vi.spyOn(judgeApi, 'judge').mockReturnValue(
+      new Promise<judgeApi.JudgeResult>(() => {
         // 返さない
       }),
     );
@@ -512,7 +512,7 @@ describe('送信の間引き', () => {
   it('force なら同じ文字数でも送る', async () => {
     // 読み切り後の 1 回。読み上げ中に全文まで送り切っていると、
     // 間引かれて「読み切り後の判定」が一度も走らない
-    const judge = vi.spyOn(jev, 'judge').mockResolvedValue(HOLD);
+    const judge = vi.spyOn(judgeApi, 'judge').mockResolvedValue(HOLD);
     const { hook } = await mount('q1');
 
     await act(async () => {
@@ -527,7 +527,7 @@ describe('送信の間引き', () => {
 
   it('force でも押した後は送らない', async () => {
     // 既に押していれば、読み切り後に送り直す意味が無い
-    const judge = vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    const judge = vi.spyOn(judgeApi, 'judge').mockResolvedValue(PRESS);
     const { hook } = await mount('q1');
 
     await act(async () => {
@@ -541,7 +541,7 @@ describe('送信の間引き', () => {
   });
 
   it('押した後は送らない', async () => {
-    const judge = vi.spyOn(jev, 'judge').mockResolvedValue(PRESS);
+    const judge = vi.spyOn(judgeApi, 'judge').mockResolvedValue(PRESS);
     const { hook } = await mount('q1');
 
     await act(async () => {
@@ -557,7 +557,7 @@ describe('送信の間引き', () => {
 
 describe('stop', () => {
   it('人間が先に押した後は送らない', async () => {
-    const judge = vi.spyOn(jev, 'judge').mockResolvedValue(HOLD);
+    const judge = vi.spyOn(judgeApi, 'judge').mockResolvedValue(HOLD);
     const { hook } = await mount('q1');
 
     act(() => {

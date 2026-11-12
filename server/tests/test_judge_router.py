@@ -11,15 +11,15 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.jev import router as jev_router
-from app.jev.client import JevError
-from app.jev.questions import ACTIVE_QUESTIONS, NARROWED_LEVELS
+from app.judge import router as judge_router
+from app.judge.client import JevError
+from app.judge.questions import ACTIVE_QUESTIONS, NARROWED_LEVELS
 
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
     app = FastAPI()
-    app.include_router(jev_router.router)
+    app.include_router(judge_router.router)
     with TestClient(app) as test_client:
         yield test_client
 
@@ -47,7 +47,7 @@ def _answers(
 def test_キーがあれば_available(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TYPESAFE_API_KEY", "dummy")
 
-    body = client.get("/api/jev/health").json()
+    body = client.get("/api/judge/health").json()
 
     assert body["available"] is True
 
@@ -57,7 +57,7 @@ def test_キーが無ければ理由付きで_unavailable(
 ) -> None:
     monkeypatch.setenv("TYPESAFE_API_KEY", "")
 
-    body = client.get("/api/jev/health").json()
+    body = client.get("/api/judge/health").json()
 
     assert body["available"] is False
     assert "TYPESAFE_API_KEY" in body["reason"]
@@ -72,7 +72,7 @@ def test_health_は_narrowed_の段階数を返す(
     """
     monkeypatch.setenv("TYPESAFE_API_KEY", "dummy")
 
-    body = client.get("/api/jev/health").json()
+    body = client.get("/api/judge/health").json()
 
     assert body["narrowed_levels"] == NARROWED_LEVELS
 
@@ -83,9 +83,9 @@ def test_judge_は各質問の値を返す(
     async def fake_evaluate(state: str, questions: dict) -> dict:
         return _answers(buzz=0.94, parallel=0.02, narrowed=2.9, asking=0.81)
 
-    monkeypatch.setattr(jev_router, "evaluate", fake_evaluate)
+    monkeypatch.setattr(judge_router, "evaluate", fake_evaluate)
 
-    body = client.post("/api/jev/judge", json={"partial_text": "日本の小説家で"}).json()
+    body = client.post("/api/judge/judge", json={"partial_text": "日本の小説家で"}).json()
 
     assert body["ok"] is True
     assert body["buzz"] == 0.94
@@ -106,9 +106,9 @@ def test_judge_は_asking_を返す(
     async def fake_evaluate(state: str, questions: dict) -> dict:
         return _answers()
 
-    monkeypatch.setattr(jev_router, "evaluate", fake_evaluate)
+    monkeypatch.setattr(judge_router, "evaluate", fake_evaluate)
 
-    body = client.post("/api/jev/judge", json={"partial_text": "日本の"}).json()
+    body = client.post("/api/judge/judge", json={"partial_text": "日本の"}).json()
 
     assert "asking" in ACTIVE_QUESTIONS
     assert body["asking"] is not None
@@ -128,9 +128,9 @@ def test_judge_は_読み上げ済みの文字列だけを送る(
         captured["questions"] = set(questions)
         return _answers()
 
-    monkeypatch.setattr(jev_router, "evaluate", fake_evaluate)
+    monkeypatch.setattr(judge_router, "evaluate", fake_evaluate)
 
-    client.post("/api/jev/judge", json={"partial_text": "日本の小説家で"})
+    client.post("/api/judge/judge", json={"partial_text": "日本の小説家で"})
 
     assert captured["state"] == "日本の小説家で"
     assert captured["questions"] == set(ACTIVE_QUESTIONS)
@@ -147,9 +147,9 @@ def test_judge_は失敗しても_200_で返す(
     async def fake_evaluate(state: str, questions: dict) -> dict:
         raise JevError("rate_limit", "レート制限に達しました")
 
-    monkeypatch.setattr(jev_router, "evaluate", fake_evaluate)
+    monkeypatch.setattr(judge_router, "evaluate", fake_evaluate)
 
-    response = client.post("/api/jev/judge", json={"partial_text": "日本の"})
+    response = client.post("/api/judge/judge", json={"partial_text": "日本の"})
 
     assert response.status_code == 200
     assert response.json()["ok"] is False
@@ -167,9 +167,9 @@ def test_値が欠けていれば_None_として返す(
     async def fake_evaluate(state: str, questions: dict) -> dict:
         return {"buzz": {"type": "noul", "noul": 0.5}}
 
-    monkeypatch.setattr(jev_router, "evaluate", fake_evaluate)
+    monkeypatch.setattr(judge_router, "evaluate", fake_evaluate)
 
-    body = client.post("/api/jev/judge", json={"partial_text": "日本の"}).json()
+    body = client.post("/api/judge/judge", json={"partial_text": "日本の"}).json()
 
     assert body["buzz"] == 0.5
     assert body["parallel"] is None
@@ -177,7 +177,7 @@ def test_値が欠けていれば_None_として返す(
 
 
 def test_空の問題文は受け付けない(client: TestClient) -> None:
-    response = client.post("/api/jev/judge", json={"partial_text": ""})
+    response = client.post("/api/judge/judge", json={"partial_text": ""})
 
     assert response.status_code == 422
 
@@ -193,7 +193,7 @@ def test_health_は読み切り後の待ち時間を返す(
     monkeypatch.setenv("TYPESAFE_API_KEY", "dummy")
     monkeypatch.setenv("AI_READING_ENDED_DELAY_MS", "3000")
 
-    assert client.get("/api/jev/health").json()["reading_ended_delay_ms"] == 3000
+    assert client.get("/api/judge/health").json()["reading_ended_delay_ms"] == 3000
 
 
 def test_待ち時間は_0_を認める(
@@ -206,7 +206,7 @@ def test_待ち時間は_0_を認める(
     monkeypatch.setenv("TYPESAFE_API_KEY", "dummy")
     monkeypatch.setenv("AI_READING_ENDED_DELAY_MS", "0")
 
-    assert client.get("/api/jev/health").json()["reading_ended_delay_ms"] == 0
+    assert client.get("/api/judge/health").json()["reading_ended_delay_ms"] == 0
 
 
 def test_待ち時間が不正なら既定値へ落とす(
@@ -215,4 +215,4 @@ def test_待ち時間が不正なら既定値へ落とす(
     monkeypatch.setenv("TYPESAFE_API_KEY", "dummy")
     monkeypatch.setenv("AI_READING_ENDED_DELAY_MS", "abc")
 
-    assert client.get("/api/jev/health").json()["reading_ended_delay_ms"] == 5000
+    assert client.get("/api/judge/health").json()["reading_ended_delay_ms"] == 5000

@@ -27,7 +27,7 @@ const SAFE = '「なぜ山に登るのか？」と聞かれて「そこに山が
 
 describe('閾値', () => {
   it('Python 側と同じ値である', () => {
-    // server/app/jev/decision.py と突き合わせること
+    // server/app/judge/decision.py と突き合わせること
     expect(BUZZ_STRONG).toBe(0.9);
     expect(BUZZ_WEAK).toBe(0.7);
     expect(ASKING_MIN).toBe(0.6);
