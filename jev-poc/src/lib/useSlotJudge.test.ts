@@ -76,9 +76,48 @@ describe('useSlotJudge', () => {
     });
     expect(result.current.state.display?.whiteLength).toBe(10);
     expect(result.current.state.display?.grayLength).toBe(12);
+  });
 
-    // 読み切り後に届いても、すでに押していればそのまま
+  it('読み切り後に届いた押下応答で全文灰から押した表示へ切り替える', async () => {
+    let release: (value: judgeApi.JudgeResult) => void = () => {};
+    vi.spyOn(judgeApi, 'judge').mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+
+    let arrived = 10;
+    const { result } = renderHook(() =>
+      useSlotJudge({
+        provider: 'openai',
+        active: true,
+        totalLength: 20,
+        currentLength: () => arrived,
+      }),
+    );
+
+    act(() => {
+      result.current.feed('日本の小説家で', 10);
+    });
+    act(() => {
+      result.current.markReadEnded();
+    });
+    expect(result.current.state.display).toEqual({
+      pressed: false,
+      whiteLength: null,
+      grayLength: 20,
+    });
+
     arrived = 20;
+    await act(async () => {
+      release(PRESS);
+    });
+
+    await waitFor(() => {
+      expect(result.current.state.display?.pressed).toBe(true);
+    });
+    expect(result.current.state.display?.whiteLength).toBe(10);
+    expect(result.current.state.display?.grayLength).toBe(20);
   });
 
   it('基準位置が全文なら押さない', async () => {
