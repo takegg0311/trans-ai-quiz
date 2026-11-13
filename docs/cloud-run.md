@@ -1,6 +1,6 @@
 # Cloud Run でのオンライン大会
 
-回答者はスマホの携帯回線などから早押しボタンを利用する。問題音声と投影は出題者画面だけで行い、口頭回答・主催者による判定はローカル版と同じ。1大会・回答者20人まで。AI参加者（Jev + LLM合議）も利用できる。
+回答者はスマホの携帯回線などから早押しボタンを利用する。問題音声と投影は出題者画面だけで行い、口頭回答・主催者による判定はローカル版と同じ。1大会・回答者20人まで。AI参加者（早押し判定 + LLM合議）も利用できる。
 
 ## 構成と起動入口
 
@@ -22,9 +22,25 @@
 | `QUIZ_PUBLIC_URL` | 公開HTTPSオリジン。パス・クエリなし |
 | `QUIZ_HOST_PASSWORD` | Secret Manager経由の主催者パスワード |
 | `QUIZ_SESSION_SECRET` | Secret Manager経由の32文字以上の署名鍵。リビジョン間で共通にする |
-| `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` / `XAI_API_KEY` / `TYPESAFE_API_KEY` | AI用キー。Secret Manager経由。未設定の機能は縮退する |
+| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `XAI_API_KEY` / `TYPESAFE_API_KEY` | AI用キー。Secret Manager経由。未設定の機能は縮退する |
+| `JUDGE_PROVIDER` | 早押し判定の provider（`typesafe` / `openai` / `gemini`）。空なら `typesafe` |
 
-`JEV_MODEL`、`AI_READING_ENDED_DELAY_MS`、`QUIZ_CHAR_INTERVAL_MS` など既存設定も使用できる。署名鍵を変更すると既存の主催者セッションは無効になる。
+`JUDGE_MODEL`、`AI_READING_ENDED_DELAY_MS`、`QUIZ_CHAR_INTERVAL_MS` など既存設定も使用できる。署名鍵を変更すると既存の主催者セッションは無効になる。
+
+### OPENAI_API_KEY Secret を足すデプロイの前に
+
+テンプレートが `quiz-openai-api-key` を参照するため、Secret が無い・実行 SA に `secretAccessor` が無いと、`JUDGE_PROVIDER` が typesafe のままでも**リビジョン自体が起動しない**。次の順で行う。
+
+1. キーの値まで登録する（`--data-file` を付けないと器だけできてバージョン 1 が無く、テンプレートの `key: '1'` を解決できない）:
+
+```bash
+printf '%s' "$OPENAI_API_KEY" | gcloud secrets create quiz-openai-api-key --data-file=-
+# 器だけ先に作ってしまった場合:
+# printf '%s' "$OPENAI_API_KEY" | gcloud secrets versions add quiz-openai-api-key --data-file=-
+```
+
+2. 実行サービスアカウントに当該 Secret の `roles/secretmanager.secretAccessor` を付与する。
+3. `deploy/render-cloud-run.sh` → `deploy/replace-cloud-run.sh`。
 
 ## 開催する
 
@@ -85,6 +101,7 @@ WebSocketの60分タイムアウトによる通常再接続では同一参加者
 | `QUIZ_BUCKET` | 問題 ZIP の非公開バケット名 |
 | `QUIZ_DATABASE` | Firestore データベース名 |
 | `QUIZ_COLLECTION` | Firestore コレクション名 |
+| `JUDGE_PROVIDER` | 早押し判定の provider。空なら typesafe（必須リストには入れない） |
 
 実行SAへ付与する権限:
 

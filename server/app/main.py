@@ -25,7 +25,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .jev.router import router as jev_router
+from .judge.router import router as judge_router
 from .llm.router import router as llm_router
 from .quiz import QUIZ_DATA_DIR, REPO_ROOT, QuizDataError, Question, load_questions
 from .room import Room
@@ -132,7 +132,7 @@ def _require_quiz_data() -> None:
 app.include_router(llm_router)
 
 # Jev による早押し判定。こちらも出題データに依存しない。
-app.include_router(jev_router)
+app.include_router(judge_router)
 
 app.include_router(ws_router)
 

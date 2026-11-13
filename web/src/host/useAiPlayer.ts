@@ -23,7 +23,7 @@ import {
   type ModelAnswer,
 } from '../lib/consensus';
 import { decide } from '../lib/decision';
-import { checkHealth as checkJevHealth, judge as judgeJev } from '../lib/jev';
+import { checkHealth as checkJudgeHealth, judge as judgePartial } from '../lib/judge';
 import { checkHealth as checkLlmHealth, predict, type PredictResult } from '../lib/llm';
 import type { AiModelAnswerView, ClientMessage } from '../protocol';
 
@@ -55,8 +55,14 @@ export type AiJudgement = {
 };
 
 export type AiReadiness = {
-  /** Jev が使えるか。これが false なら自動早押ししない */
-  jev: boolean;
+  /** 判定 API が使えるか。これが false なら自動早押ししない */
+  judge: boolean;
+  /** 既定 provider の id（表示用） */
+  provider: string;
+  /** 既定 provider の model（表示用） */
+  model: string;
+  /** 使えない理由。health の reason */
+  reason?: string;
   /** 3 モデルすべてが使えるか。false でも早押しはする（回答できないだけ） */
   llm: boolean;
   /**
@@ -86,7 +92,9 @@ export function useAiPlayer({ send, roundId, questionId }: Props) {
   const [answerPending, setAnswerPending] = useState(false);
   const answerGenerationRef = useRef(0);
   const [readiness, setReadiness] = useState<AiReadiness>({
-    jev: false,
+    judge: false,
+    provider: '',
+    model: '',
     llm: false,
     readingEndedDelayMs: 0,
   });
@@ -133,8 +141,8 @@ export function useAiPlayer({ send, roundId, questionId }: Props) {
     healthGenerationRef.current += 1;
     const generation = healthGenerationRef.current;
 
-    const [jevHealth, providers] = await Promise.all([
-      checkJevHealth(),
+    const [judgeHealth, providers] = await Promise.all([
+      checkJudgeHealth(),
       checkLlmHealth(),
     ]);
 
@@ -152,9 +160,12 @@ export function useAiPlayer({ send, roundId, questionId }: Props) {
       );
 
     setReadiness({
-      jev: jevHealth !== null && jevHealth.available,
+      judge: judgeHealth !== null && judgeHealth.available,
+      provider: judgeHealth?.provider ?? '',
+      model: judgeHealth?.model ?? '',
+      reason: judgeHealth?.reason,
       llm: llmReady,
-      readingEndedDelayMs: jevHealth?.readingEndedDelayMs ?? 0,
+      readingEndedDelayMs: judgeHealth?.readingEndedDelayMs ?? 0,
     });
   }, []);
 
@@ -245,7 +256,7 @@ export function useAiPlayer({ send, roundId, questionId }: Props) {
    */
   const feed = useCallback(
     (partialText: string, chars: number, questionId: string, force = false) => {
-      if (!enabledRef.current || !readiness.jev) return;
+      if (!enabledRef.current || !readiness.judge) return;
       if (pressedRef.current) return;
       if (inFlightRef.current) return;
       // 読み切り後の 1 回だけは、同じ文字数でも送る（force）。
@@ -258,7 +269,7 @@ export function useAiPlayer({ send, roundId, questionId }: Props) {
       inFlightRef.current = true;
       const round = roundRef.current;
 
-      void judgeJev(partialText).then((result) => {
+      void judgePartial(partialText).then((result) => {
         // 次の問題へ進んだ後に届いた応答では押さない
         if (roundRef.current !== round) return;
         inFlightRef.current = false;
@@ -291,7 +302,7 @@ export function useAiPlayer({ send, roundId, questionId }: Props) {
         // 受理されて読み上げが止まった位置までの文（answer で受け取る）
       });
     },
-    [readiness.jev],
+    [readiness.judge],
   );
 
   /**

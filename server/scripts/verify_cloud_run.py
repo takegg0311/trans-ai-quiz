@@ -124,10 +124,10 @@ async def verify(url: str, password: str, ai: bool, restart_project: str | None 
                     assert restored['question'] is None
                     print('Participant reconnect: identity and confirmed answer right preserved')
                     if ai:
-                        for path in ['/api/llm/health', '/api/jev/health']:
+                        for path in ['/api/llm/health', '/api/judge/health']:
                             response = await client.get(path)
                             response.raise_for_status()
-                        jev = await client.post('/api/jev/judge', json={"partial_text": "日本で一番高い山は何でしょう？"}, headers=headers)
+                        jev = await client.post('/api/judge/judge', json={"partial_text": "日本で一番高い山は何でしょう？"}, headers=headers)
                         jev.raise_for_status()
                         assert jev.json().get('ok'), 'Jev request failed (inspect provider configuration)'
                         opponents = [('anthropic', 'claude-sonnet-5'), ('google', 'gemini-3.7-flash'), ('xai', 'grok-4.3')]

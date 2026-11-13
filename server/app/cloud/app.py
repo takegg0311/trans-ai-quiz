@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
-from ..jev.router import router as jev_router
+from ..judge.router import router as judge_router
 from ..llm.router import health as llm_health, predict as llm_predict
 from ..protocol import BuzzAcceptedMessage, BuzzRejectedMessage, ClientMessage, ErrorMessage, WelcomeMessage
 from ..quiz import REPO_ROOT, QuizDataError
@@ -255,7 +255,7 @@ def create_app(settings: Settings, states: IStateStore, objects: IObjectStore) -
     ai_router.add_api_route("/api/llm/health", llm_health, methods=["GET"])
     ai_router.add_api_route("/api/llm/predict", llm_predict, methods=["POST"])
     app.include_router(ai_router)
-    app.include_router(jev_router, dependencies=[Depends(host)])
+    app.include_router(judge_router, dependencies=[Depends(host)])
 
     @app.websocket("/ws")
     async def websocket(socket: WebSocket) -> None:

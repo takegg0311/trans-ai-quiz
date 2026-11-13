@@ -37,6 +37,9 @@ spec:
               value: ${QUIZ_DATABASE}
             - name: QUIZ_COLLECTION
               value: ${QUIZ_COLLECTION}
+            # 空のとき YAML null にならないようダブルクォートで囲む
+            - name: JUDGE_PROVIDER
+              value: "${JUDGE_PROVIDER}"
             - name: QUIZ_HOST_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -51,6 +54,11 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: quiz-anthropic-api-key
+                  key: '1'
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: quiz-openai-api-key
                   key: '1'
             - name: GEMINI_API_KEY
               valueFrom:

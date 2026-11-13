@@ -1,54 +1,78 @@
-"""Jev 判定の HTTP エンドポイント。
+"""判定の HTTP エンドポイント。
 
 /judge は読み上げ中に連続で呼ばれる。問題文の全文と正解は受け取らない。
-jev-poc 側が保持したままにし、渡すのはその時点で画面に出ていた文字列だけとする
+呼び出し側が保持したままにし、渡すのはその時点で画面に出ていた文字列だけとする
 （llm/router.py の /predict と同じ原則）。
 
 閾値の判断はここでは行わない。観測値をそのまま返し、押すかどうかは
-呼び出し側が決める。閾値は実測で調整するものであり、サーバへ焼き込むと
-フロントから動かせなくなるため。
+呼び出し側が決める。
 """
 
 from __future__ import annotations
 
 import time
+from typing import Literal
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from .client import JevError, evaluate
-from .config import ENV_KEY, api_key, model, reading_ended_delay_ms
+from .client import evaluate
+from .config import (
+    PROVIDERS,
+    PROVIDER_IDS,
+    ProviderId,
+    api_key,
+    configured_provider_id,
+    configured_provider_raw,
+    model_for,
+    reading_ended_delay_ms,
+)
+from .errors import JudgeError
 from .questions import ACTIVE_QUESTIONS, NARROWED_LEVELS
 
-router = APIRouter(prefix="/api/jev", tags=["jev"])
+router = APIRouter(prefix="/api/judge", tags=["judge"])
 
 
 class JudgeRequest(BaseModel):
     #: 読み上げ済みの問題文。文の途中で切れていてよい
     partial_text: str = Field(min_length=1)
+    #: 省略すれば JUDGE_PROVIDER の provider を使う。jev-poc は枠ごとに指定する
+    provider: Literal["typesafe", "openai", "gemini"] | None = None
 
 
 @router.get("/health")
 async def health() -> dict[str, object]:
-    """Jev が使える状態かを返す。
+    """判定が使える状態かを返す。
 
-    jev-poc はこれを起動時に叩き、使えなければ自動早押しを無効にして
-    手動のみで動かす（凍結 poc/ の LLM 枠が縮退するのと同じ方針）。
+    トップレベルの available / model / reason は既定の provider の値。
+    providers は 3 社分を常に返す（JUDGE_PROVIDER が不明でも）。
     """
-    available = api_key() is not None
+    providers = [_provider_view(provider_id) for provider_id in PROVIDER_IDS]
+    default_id = configured_provider_id()
+    raw = configured_provider_raw()
+
+    if default_id is None:
+        return {
+            "available": False,
+            "provider": raw,
+            "model": "",
+            "reason": f"JUDGE_PROVIDER の値が不正です: {raw}",
+            "narrowed_levels": NARROWED_LEVELS,
+            "reading_ended_delay_ms": reading_ended_delay_ms(),
+            "providers": providers,
+        }
+
+    default_view = _provider_view(default_id)
     view: dict[str, object] = {
-        "available": available,
-        "model": model(),
-        #: narrowed の score は 0〜1 ではなく 0〜(段階数-1)。
-        #  値域を取り違えないよう、段階数を明示して返す。
+        "available": default_view["available"],
+        "provider": default_id,
+        "model": default_view["model"],
         "narrowed_levels": NARROWED_LEVELS,
-        #: 読み切り後、AI が回答に踏み切るまでの待ち時間（ミリ秒）。
-        #  サーバが持つのは、出題者フロントを開き直しても設定が変わらないようにするため
-        #  （quiz.py の char_interval_ms と同じ方針）。
         "reading_ended_delay_ms": reading_ended_delay_ms(),
+        "providers": providers,
     }
-    if not available:
-        view["reason"] = f"{ENV_KEY} が設定されていません"
+    if "reason" in default_view:
+        view["reason"] = default_view["reason"]
     return view
 
 
@@ -63,8 +87,12 @@ async def judge(request: JudgeRequest) -> dict[str, object]:
     started = time.perf_counter()
 
     try:
-        answers = await evaluate(request.partial_text, ACTIVE_QUESTIONS)
-    except JevError as error:
+        answers = await evaluate(
+            request.partial_text,
+            ACTIVE_QUESTIONS,
+            provider=request.provider,
+        )
+    except JudgeError as error:
         return {
             "ok": False,
             "error_kind": error.kind,
@@ -90,12 +118,22 @@ async def judge(request: JudgeRequest) -> dict[str, object]:
     }
 
 
-def _noul(answers: dict[str, object], key: str) -> float | None:
-    """noul の値（0〜1 の yes 確率）を取り出す。
+def _provider_view(provider_id: ProviderId) -> dict[str, object]:
+    spec = PROVIDERS[provider_id]
+    available = api_key(spec.env_key) is not None
+    view: dict[str, object] = {
+        "id": spec.id,
+        "label": spec.label,
+        "model": model_for(provider_id),
+        "available": available,
+    }
+    if not available:
+        view["reason"] = f"{spec.env_key} が設定されていません"
+    return view
 
-    noul には confidence が無い。分布が yes/no の 2 つしかなく、
-    noul の値そのものが分布を完全に表すため。
-    """
+
+def _noul(answers: dict[str, object], key: str) -> float | None:
+    """noul の値（0〜1 の yes 確率）を取り出す。"""
     return _number(answers.get(key), "noul")
 
 
@@ -110,11 +148,7 @@ def _confidence(answers: dict[str, object], key: str) -> float | None:
 
 
 def _number(answer: object, field: str) -> float | None:
-    """応答から数値を 1 つ取り出す。欠けていれば None を返す。
-
-    質問を足したのに応答へ現れない、といった食い違いを握り潰さずに
-    「値が無かった」として表に出すため、既定値で埋めない。
-    """
+    """応答から数値を 1 つ取り出す。欠けていれば None を返す。"""
     if not isinstance(answer, dict):
         return None
     value = answer.get(field)

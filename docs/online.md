@@ -52,7 +52,8 @@ cd server && uv sync && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 | 環境変数 | 用途 |
 | --- | --- |
 | `QUIZ_CHAR_INTERVAL_MS` | 音声なし問題の文字送り間隔（ミリ秒/文字、既定 120） |
-| `TYPESAFE_API_KEY` | AI 参加者の早押し判定（[Jev](jev-poc.md)）。未設定なら AI を参加させられない |
+| `TYPESAFE_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` | AI 参加者の早押し判定（[判定 API](jev-poc.md)）。`JUDGE_PROVIDER` で選んだ provider のキーが要る |
+| `JUDGE_PROVIDER` | 使う判定 provider（`typesafe` / `openai` / `gemini`）。空なら `typesafe` |
 | `AI_READING_ENDED_DELAY_MS` | 読み切り後、AI が回答に踏み切るまでの待ち時間（ミリ秒、既定 5000）。0 なら読み切りと同時 |
 | `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` / `XAI_API_KEY` | AI 参加者の回答（3 モデルの合議）。未設定なら早押しはするが回答できない |
 
@@ -169,10 +170,10 @@ npm test -w web
 
 ## AI 参加者
 
-出題者画面の「AI 参加者」で参加させると、読み上げ中に [Jev](jev-poc.md) が自動で早押しする。
+出題者画面の「AI 参加者」で参加させると、読み上げ中に判定 API（`JUDGE_PROVIDER`）が自動で早押しする。
 押したら 3 モデル（Claude / Gemini / Grok）へ並列に投げ、合議で答えを 1 つ決める。
 
-判定と合議の中身は [jev-poc](jev-poc.md) と同じものを使っている。
+押下規則（`decision.ts`）は [jev-poc](jev-poc.md) と共通。合議はオンライン版側の実装を使う。
 このドキュメントでは、オンライン版で違う部分だけを書く。
 
 ### AI は通常の参加者として扱う
@@ -274,7 +275,7 @@ AI_READING_ENDED_DELAY_MS=0 uv run uvicorn app.main:app --host 0.0.0.0 --port 80
 
 ### AI が使えない場合
 
-`TYPESAFE_API_KEY` が未設定なら参加トグルが押せない。オンライン版の他の機能は動く。
+既定 provider のキーが未設定なら参加トグルが押せない。オンライン版の他の機能は動く。
 
 各社の API キーが未設定の場合、**早押しはするが回答できない**。
 送信せずその場で「回答なし」を返すため、出題が止まることはない。
@@ -334,19 +335,18 @@ web/
     │   ├── sound.ts            ジングル SE
     │   ├── useConnection.ts    WebSocket 接続と再接続
     │   ├── useWakeLock.ts      スマホの画面ロック防止
-    │   ├── jev.ts              Jev 判定 API の呼び出し（jev-poc からの移植）
-    │   ├── llm.ts              予測 API の呼び出し（jev-poc からの移植）
+    │   ├── judge.ts            判定 API の呼び出し
+    │   ├── llm.ts              予測 API の呼び出し
     │   ├── decision.ts         押下判定（jev-poc・server と同じ規則）
     │   ├── consensus.ts        3 モデルの応答から答えを 1 つ決める
-    │   ├── continuation.ts     予測文を読み上げ済み部分と予測部分に分ける（jev-poc と同じ）
+    │   ├── continuation.ts     予測文を読み上げ済み部分と予測部分に分ける
     │   └── normalize.ts        合議で回答を比べるための正規化
     ├── host/                   出題者用（投影）
-    │   ├── useAiPlayer.ts      Jev 判定と合議の実行、AI としての早押し
+    │   ├── useAiPlayer.ts      判定と合議の実行、AI としての早押し
     │   ├── AiPanel.tsx         AI の参加操作と判定値のバー表示
     │   └── AiAnswerView.tsx    AI の回答と各モデルの応答・予測した問題文
     └── player/                 回答者用（押しボタン）
 ```
 
-`lib/` の `jev.ts` `llm.ts` `decision.ts` `consensus.ts` は [jev-poc](jev-poc.md) からの移植で、
-**両方に同じものがある**。片方だけ直すと、計測スクリプトで測った成績と実機の挙動がズレる。
-`decision.ts` は `server/app/jev/decision.py` とも対になっている。閾値に触るときは 3 箇所すべてを見る。
+`decision.ts` は [jev-poc](jev-poc.md) と `server/app/judge/decision.py` とも対になっている。
+閾値に触るときは 3 箇所すべてを見る。

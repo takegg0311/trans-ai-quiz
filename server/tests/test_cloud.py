@@ -203,7 +203,7 @@ def test_http_authorization_and_lifecycle(environment: Any) -> None:
         response = client.post("/api/tournament", content=archive(), headers=headers)
         assert response.json()["id"] != event_id
     with TestClient(app, base_url=settings.public_url) as anonymous:
-        for path in ["/api/questions", "/api/llm/health", "/api/jev/health", "/quiz_data/questions.csv"]:
+        for path in ["/api/questions", "/api/llm/health", "/api/judge/health", "/quiz_data/questions.csv"]:
             assert anonymous.get(path).status_code == 401
 
 

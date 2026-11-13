@@ -22,6 +22,7 @@ quiz_data/20260820/*
 
 # 上記データから生成されるため追跡しない
 quiz_data/manifest.json
+quiz_data/manifest.jev-poc.json
 
 # API キー。.env.example をコピーして各自で用意する
 server/.env

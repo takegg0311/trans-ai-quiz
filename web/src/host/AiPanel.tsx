@@ -1,7 +1,7 @@
 /**
  * AI の参加操作。出題者だけが見る欄。
  *
- * 参加させると Jev が読み上げ中に自動で早押しし、押したら 3 モデルの
+ * 参加させると判定 API が読み上げ中に自動で早押しし、押したら 3 モデルの
  * 合議で回答する。正誤の判定は出題者が押す（人間と同じ扱い）。
  */
 import { ASKING_MIN, BUZZ_WEAK } from '../lib/decision';
@@ -34,23 +34,30 @@ export function AiPanel({
           <input
             type="checkbox"
             checked={enabled}
-            disabled={disabled || !readiness.jev}
+            disabled={disabled || !readiness.judge}
             onChange={(event) => onToggle(event.target.checked)}
           />
           参加させる
         </label>
       </header>
 
-      {!readiness.jev && (
+      {readiness.judge && (
+        <p className="ai-panel-meta">
+          判定: {readiness.provider || '—'} / {readiness.model || '—'}
+        </p>
+      )}
+
+      {!readiness.judge && (
         <p className="ai-panel-notice">
-          Jev に接続できません（`TYPESAFE_API_KEY` を確認してください）。
+          判定に接続できません
+          {readiness.reason ? `（${readiness.reason}）` : ''}。
           <button type="button" onClick={onRefresh}>
             再チェック
           </button>
         </p>
       )}
 
-      {readiness.jev && !readiness.llm && (
+      {readiness.judge && !readiness.llm && (
         <p className="ai-panel-notice">
           LLM に接続できません。早押しはしますが回答できません
           （Claude / Gemini / Grok のキーを確認してください）。
