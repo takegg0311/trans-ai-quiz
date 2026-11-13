@@ -6,13 +6,16 @@
   --text: #f2f4f8;
   --muted: #8b93a7;
   --gray-text: #6b7280;
-  --accent: #3d8bfd;
-  --accent-strong: #5ca0ff;
+  /* オンライン版（web/src/styles.css）の --accent に揃える */
+  --accent: #e3b341;
+  --accent-strong: #f0c75a;
+  --accent-ink: #1c1c1c;
   --danger: #f07178;
   --border: #2a3140;
   --gauge-track: #2a3140;
-  --gauge-fill: #3d8bfd;
-  --gauge-reached: #5dd39e;
+  /* 未達は灰、閾値到達は黄（オンライン版 AI ゲージと同じ） */
+  --gauge-fill: #8b93a7;
+  --gauge-reached: #e3b341;
   --font: "IBM Plex Sans JP", "Hiragino Sans", "Noto Sans JP", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, monospace;
 }
@@ -135,18 +138,11 @@ input {
 
 .cursor {
   display: inline-block;
-  width: 0.55rem;
-  height: 1.1em;
-  margin-left: 0.1rem;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 0.15rem;
   vertical-align: text-bottom;
   background: var(--accent);
-  animation: blink 1s steps(1) infinite;
-}
-
-@keyframes blink {
-  50% {
-    opacity: 0;
-  }
 }
 
 .provider-slot-side {
@@ -262,9 +258,9 @@ input {
   border: 0;
   border-radius: 0.45rem;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
   font-size: 1rem;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
 }
 
