@@ -38,6 +38,8 @@ export function App() {
   const silentTimerRef = useRef<number | null>(null);
   const lastIdRef = useRef<string | undefined>(undefined);
   const readingLengthRef = useRef(0);
+  /** phase の再描画前に連打されても二重開始しないためのガード */
+  const startInFlightRef = useRef(false);
 
   const health = useProviderHealth();
   const { phase, question, error } = state;
@@ -242,9 +244,12 @@ export function App() {
 
   const startQuestion = useCallback(async () => {
     if (!canStart(phase) || !health.canStart) return;
+    if (startInFlightRef.current) return;
     const entry = pickRandom(entries, lastIdRef.current);
     if (entry === undefined) return;
 
+    startInFlightRef.current = true;
+    dispatch({ type: 'start' });
     setFrozenEnabled({ ...health.enabled });
     resetAllSlots();
     setCurrentTime(0);
@@ -257,6 +262,7 @@ export function App() {
       await playJingle('set');
       dispatch({ type: 'jingleEnded' });
     } catch (reason: unknown) {
+      startInFlightRef.current = false;
       setFrozenEnabled(null);
       dispatch({
         type: 'loadFailed',
@@ -271,6 +277,7 @@ export function App() {
   }, [phase, question, finishReading]);
 
   const handleNext = useCallback(() => {
+    startInFlightRef.current = false;
     resetAllSlots();
     setFrozenEnabled(null);
     dispatch({ type: 'next' });

@@ -1,18 +1,21 @@
 /**
  * 出題サイクルの状態遷移（判定比較用）。
  *
- *   idle ──start──▶ jingle ──jingleEnded──▶ reading
- *                                             │
- *                                        audioEnded
- *                                             ▼
- *                                         readEnded ──reveal──▶ reveal
- *                                             ▲                   │
- *                                             └── close ◀─────────┤
- *                                                                 │
- *                                              idle ◀── next ─────┘
+ *   idle ──start──▶ loading ──questionLoaded──▶ jingle ──jingleEnded──▶ reading
+ *                     │                                              │
+ *                loadFailed                                     audioEnded
+ *                     ▼                                              ▼
+ *                   idle                                         readEnded ──reveal──▶ reveal
+ *                                                                     ▲                   │
+ *                                                                     └── close ◀─────────┤
+ *                                                                                         │
+ *                                                      idle ◀── next ─────────────────────┘
  *
  * 人間の早押し・LLM 回答・正誤判定は持たない。3 枠の押しポイントを
  * 並べて比べるのが目的のため。
+ *
+ * start で loading に移すのは、問題データの await 中に「出題する」の連打や
+ * 枠トグルが通らないようにするため。初期の manifest 読み込みも同じ loading を使う。
  */
 import type { Question } from '../lib/manifest';
 
@@ -33,6 +36,7 @@ export type QuizState = {
 export type QuizAction =
   | { type: 'loadFailed'; message: string }
   | { type: 'ready' }
+  | { type: 'start' }
   | { type: 'questionLoaded'; question: Question }
   | { type: 'jingleEnded' }
   | { type: 'audioEnded' }
@@ -53,6 +57,12 @@ export function quizReducer(state: QuizState, action: QuizAction): QuizState {
 
     case 'ready':
       return { ...state, phase: 'idle', error: null };
+
+    case 'start':
+      // idle 以外からの start は無視（連打で二重に出題を始めない）
+      return state.phase === 'idle'
+        ? { ...state, phase: 'loading', error: null }
+        : state;
 
     case 'questionLoaded':
       return {

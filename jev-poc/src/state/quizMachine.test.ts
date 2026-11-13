@@ -18,11 +18,19 @@ const question = {
 } as Question;
 
 describe('quizMachine', () => {
-  it('待機 → jingle → reading → readEnded → reveal → 待機', () => {
+  it('待機 → loading → jingle → reading → readEnded → reveal → 待機', () => {
     let state = initialState;
     state = quizReducer(state, { type: 'ready' });
     expect(state.phase).toBe('idle');
     expect(canStart(state.phase)).toBe(true);
+
+    state = quizReducer(state, { type: 'start' });
+    expect(state.phase).toBe('loading');
+    expect(canStart(state.phase)).toBe(false);
+
+    // 連打分の start は無視する
+    state = quizReducer(state, { type: 'start' });
+    expect(state.phase).toBe('loading');
 
     state = quizReducer(state, { type: 'questionLoaded', question });
     expect(state.phase).toBe('jingle');
